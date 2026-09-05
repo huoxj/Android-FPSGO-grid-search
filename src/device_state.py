@@ -1,5 +1,5 @@
 
-class DeviceStateMgr:
+class DeviceMgr:
     
     def __init__(self):
         pass
@@ -9,6 +9,14 @@ class DeviceStateMgr:
         return \
             self._battery_okay() and \
             self._temperature_okay()
+
+    def turn_on_screen(self):
+        # TODO: Turn on the device screen
+        ...
+
+    def turn_off_screen(self):
+        # TODO: Turn off the device screen
+        ...
 
     def _battery_okay(self) -> bool:
         """
