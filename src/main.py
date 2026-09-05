@@ -1,13 +1,26 @@
 from time import sleep
+import argparse
 
 from prepare_grid import get_grid
 from checkpoint import CheckpointMgr
 from device_state import DeviceMgr
 from sgame import sgame_run
 
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="FPSGO param grid search automation framework"
+    )
+    parser.add_argument(
+        "-o", default="test_gs", help="Output directory for traces and metadata"
+    )
+    return parser.parse_args()
+
 def main():
+
+    args = parse_args()
+
     grid = get_grid()
-    ckpt_manager = CheckpointMgr("test_gs")
+    ckpt_manager = CheckpointMgr(args.o)
     device_mgr = DeviceMgr()
 
     print("Total grid size:", len(grid))
