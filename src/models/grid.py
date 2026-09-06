@@ -8,6 +8,5 @@ class GridRunMeta(BaseModel):
     start_time: datetime
     end_time: datetime
 
-    config_raw: str
     grid_params: dict
 

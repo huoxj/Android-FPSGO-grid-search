@@ -1,4 +1,5 @@
 from time import sleep
+from datetime import datetime
 import argparse
 
 from prepare_grid import get_grid
@@ -11,8 +12,13 @@ def parse_args():
         description="FPSGO param grid search automation framework"
     )
     parser.add_argument(
-        "-o", default="test_gs", help="Output directory for traces and metadata"
+        "-o", default="gs/test", help="Output directory for traces and metadata"
     )
+    parser.add_argument(
+        "-c", "--config", default="config.txtpb",
+        help="Perfetto config file"
+    )
+    
     return parser.parse_args()
 
 def main():
@@ -27,6 +33,7 @@ def main():
     print("Existing runs:", ckpt_manager.existing_runs_num())
     
     for i, params in enumerate(grid):
+        run_start_time = datetime.now()
         print(f"[{i}/{len(grid)}]: {params}")
         # Check if already searched
         if ckpt_manager.check_searched(params):
