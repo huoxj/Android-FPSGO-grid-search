@@ -46,12 +46,20 @@ def main():
             sleep(5)
         
         # Pre-run check and init
-        device_mgr.turn_on_screen()
+        device_mgr.start_run_init()
         
-        sgame_run()
+        # Game specific run process
+        game_start_time, game_end_time = sgame_run()
 
         # Perfetto stopped. Save run metadata
-        ckpt_manager.save_run()
+        ckpt_manager.save_run(
+            params=params,
+            trace_path= "",# TODO: perfetto trace manager
+            run_start_time=run_start_time,
+            game_start_time=game_start_time,
+            game_end_time=game_end_time
+        )
 
         # Post-run cleanup
-        device_mgr.turn_off_screen()
+        device_mgr.finish_run_cleanup()
+

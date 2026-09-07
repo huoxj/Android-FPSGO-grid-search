@@ -7,7 +7,7 @@ EARLY_STOPPING_DUR = 60
 EARLY_STOPPING_CHECK_INTERVAL = 5
 EARLY_STOPPING_THRE = 114 # need to be checked from prev optimal runs
 
-def sgame_run():
+def sgame_run() -> tuple[datetime, datetime]:
     # Restart game and make sure game is on
     ...
     # Enter the replay menu. Closes all ads or notifications
@@ -40,6 +40,9 @@ def sgame_run():
     sleep(RUN_DUR - (datetime.now() - start_time).total_seconds() + 5)
 
     # Stop perfetto recording
+    end_time = datetime.now()
     ...
 
     # Fully exit the game
+
+    return (start_time, end_time)
