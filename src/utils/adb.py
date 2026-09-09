@@ -1,13 +1,9 @@
 import subprocess
 
-def adb(cmd: str, device: str | None = None) -> str:
-    prefix = ["adb"]
-    if device:
-        prefix += ["-s", device]
-
+def adb(cmd: str) -> str:
     try:
         result = subprocess.run(
-            prefix + ["shell", cmd],
+            ["adb", "shell", cmd],
             capture_output=True, text=True, timeout=10
         ) 
     except (subprocess.TimeoutExpired, FileNotFoundError) as e:

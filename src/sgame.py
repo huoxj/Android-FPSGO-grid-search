@@ -1,14 +1,20 @@
 from datetime import datetime
 from time import sleep
-from utils.perfetto import start_perfetto_tracing
+from pathlib import Path
 
-RUN_DUR = 600 # TODO: need to be passed from config
+from utils.perfetto import start_perfetto_tracing
+from utils.fpsgo import read_fpsgo_fps
+
+# TODO: need to be passed from config
+PACKAGE_NAME_SHORT = "cent.tmgp.sgame"
+PACKAGE_NAME = "com.tencent.tmgp.sgame"
+RUN_DUR = 600
 
 EARLY_STOPPING_DUR = 60
 EARLY_STOPPING_CHECK_INTERVAL = 5
 EARLY_STOPPING_THRE = 114 # need to be checked from prev optimal runs
 
-def sgame_run() -> tuple[datetime, datetime]:
+def sgame_run() -> tuple[datetime, datetime, Path]:
     # Cleanly enter replay
     _reenter_replay()
 
@@ -26,17 +32,19 @@ def sgame_run() -> tuple[datetime, datetime]:
     # the optimal (need to be check), then early stop
     fps_sum, check_count = 0, 0
     while (datetime.now() - start_time).total_seconds() < EARLY_STOPPING_DUR:
-        fps = 0 # read fps from fpsgo_status
+        fps = read_fpsgo_fps(PACKAGE_NAME_SHORT)
         fps_sum += fps
         check_count += 1
     fps_avg = fps_sum / check_count
-    ...
-
-    # Dont stop! Wait til the end
-    # p.s. plus 10s for safety
-    sleep(RUN_DUR - (datetime.now() - start_time).total_seconds() + 10)
-    if proc.poll is not None:
-        print("Warning: Perfetto tracing stopped earlier than game process")
+    if fps_avg < EARLY_STOPPING_THRE:
+        print(f"Fps avg {fps_avg} is lower than threshold, early stopping")
+        proc.terminate()
+    else:
+        # Dont stop! Wait til the end
+        # p.s. plus 10s for safety
+        sleep(RUN_DUR - (datetime.now() - start_time).total_seconds() + 10)
+        if proc.poll is not None:
+            print("Warning: Perfetto tracing stopped earlier than game process")
 
     # Stop perfetto recording
     end_time = datetime.now()
@@ -44,7 +52,7 @@ def sgame_run() -> tuple[datetime, datetime]:
 
     _exit_game()
 
-    return (start_time, end_time)
+    return (start_time, end_time, trace_tmp_path)
 
 def _reenter_replay():
     # Restart game and make sure game is on

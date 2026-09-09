@@ -1,4 +1,5 @@
 from time import sleep
+import shutil
 from datetime import datetime
 import argparse
 
@@ -46,15 +47,19 @@ def main():
             sleep(5)
         
         # Pre-run check and init
-        device_mgr.start_run_init()
-        
+        # TODO: if set params here, limit_freq params may be override when sgame
+        # enters replay match
+        device_mgr.start_run_init(params)
+
         # Game specific run process
-        game_start_time, game_end_time = sgame_run()
+        game_start_time, game_end_time, trace_tmp_path = sgame_run()
 
         # Perfetto stopped. Save run metadata
+        trace_path = args.o + "/" + trace_tmp_path.name
+        shutil.copy(trace_tmp_path, trace_path)
         ckpt_manager.save_run(
             params=params,
-            trace_path= "",# TODO: perfetto trace manager
+            trace_path= trace_path,
             run_start_time=run_start_time,
             game_start_time=game_start_time,
             game_end_time=game_end_time

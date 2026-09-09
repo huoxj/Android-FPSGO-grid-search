@@ -1,6 +1,7 @@
 from datetime import datetime
 
 import utils.device_utils as du
+import utils.fpsgo as fpsgo
 
 class DeviceMgr:
     
@@ -14,11 +15,16 @@ class DeviceMgr:
         return self._battery_okay() and \
                self._temperature_okay()
 
-    def start_run_init(self):
+    def start_run_init(self, params: dict, package_name: str):
         # 1. Turn on screen
         du.toggle_screen(True)
         # 2. Screen brightness
         du.screen_birghtness(1.0)
+        # 3. Apply fpsgo params
+        fpsgo.apply_params(
+            params,
+            package_name
+        )
 
     def finish_run_cleanup(self):
         du.toggle_screen(False)

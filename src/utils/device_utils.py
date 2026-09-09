@@ -23,3 +23,8 @@ def read_temp(thermal_zone: int) -> int:
         adb(f"cat {_THERMAL_ZONE_PATH.format(thermal_zone)}")
     )
 
+def get_tgid(package_name: str) -> str:
+    tgid = adb(f"pidof {package_name}").strip()
+    if not tgid or not tgid.isdigit():
+        raise ValueError(f"Package '{package_name}' not running")
+    return tgid
