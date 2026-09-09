@@ -1,11 +1,14 @@
 from datetime import datetime
 
+from config import get_config
 import utils.device_utils as du
 import utils.fpsgo as fpsgo
 
 class DeviceMgr:
     
     def __init__(self):
+        self.config = get_config()
+
         # temperature check
         self.last_temp_check = False
         self.last_temp_check_time = datetime.now()
@@ -50,7 +53,8 @@ class DeviceMgr:
         
         self.last_temp_check_time = datetime.now()
 
-        cur_okay = soc_max < 35000 and tsx_ntc < 35000 and battery < 35000
+        thre = self.config.ready_temp_threshold
+        cur_okay = soc_max < thre and tsx_ntc < thre and battery < thre
         twice_okay = cur_okay and self.last_temp_check
         self.last_temp_check = cur_okay
 

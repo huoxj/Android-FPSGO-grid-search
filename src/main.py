@@ -1,33 +1,19 @@
 from time import sleep
 import shutil
 from datetime import datetime
-import argparse
 
+from config import get_config
 from prepare_grid import get_grid
 from checkpoint import CheckpointMgr
 from device_state import DeviceMgr
 from sgame import sgame_run
 
-def parse_args():
-    parser = argparse.ArgumentParser(
-        description="FPSGO param grid search automation framework"
-    )
-    parser.add_argument(
-        "-o", default="gs/test", help="Output directory for traces and metadata"
-    )
-    parser.add_argument(
-        "-c", "--config", default="config.txtpb",
-        help="Perfetto config file"
-    )
-    
-    return parser.parse_args()
-
 def main():
 
-    args = parse_args()
+    config = get_config()
 
     grid = get_grid()
-    ckpt_manager = CheckpointMgr(args.o)
+    ckpt_manager = CheckpointMgr(config.output_dir)
     device_mgr = DeviceMgr()
 
     print("Total grid size:", len(grid))
@@ -49,13 +35,13 @@ def main():
         # Pre-run check and init
         # TODO: if set params here, limit_freq params may be override when sgame
         # enters replay match
-        device_mgr.start_run_init(params)
+        device_mgr.start_run_init(params, config.sgame.package_name)
 
         # Game specific run process
         game_start_time, game_end_time, trace_tmp_path = sgame_run()
 
         # Perfetto stopped. Save run metadata
-        trace_path = args.o + "/" + trace_tmp_path.name
+        trace_path = config.output_dir + "/" + trace_tmp_path.name
         shutil.copy(trace_tmp_path, trace_path)
         ckpt_manager.save_run(
             params=params,

@@ -1,0 +1,15 @@
+output_dir = gs/test
+
+run_duration = 600
+early_stop_dur = 60
+early_stop_check_interval = 5
+early_stop_fps_threshold = 114
+
+[perfetto]
+config_file = "./perfetto_config.txtpb"
+record_script = "./record_android_trace"
+
+[sgame]
+package_name = "com.tencent.tmgp.sgame"
+package_name_short = "cent.tmgp.sgame"
+

@@ -6,12 +6,11 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
-CONFIG_PATH = Path(os.getcwd()) / "perfetto_config.txtpb"
-RECORD_SCRIPT_PATH = Path(os.getcwd()) / "record_android_trace"
+from config import get_config
 
-def _make_temp_config(duration_s: int) -> str:
+def _make_temp_config(config_path: str, duration_s: int) -> str:
     """Read config, substitute duration_ms, write to a temp file."""
-    text = CONFIG_PATH.read_text()
+    text = Path(config_path).read_text()
     text = re.sub(
         r"duration_ms:\s*\d+",
         f"duration_ms: {duration_s * 1000}",
@@ -24,17 +23,18 @@ def _make_temp_config(duration_s: int) -> str:
     tmp.close()
     return tmp.name
 
-def start_perfetto_tracing(
-    duration_s: int
-):
+def start_perfetto_tracing():
+    config = get_config()
+
+    duration_s = config.run_duration
     ext_dur = duration_s + 10 # Extra 10s for safety
-    tmp_config = _make_temp_config(ext_dur)
+    tmp_config = _make_temp_config(config.perfetto.config_file, ext_dur)
     trace_tmp_path = Path(tempfile.gettempdir()) \
         / f"trace_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pftrace"
 
     cmd = [
         sys.executable,
-        RECORD_SCRIPT_PATH,
+        config.perfetto.record_script,
         "-c", tmp_config,
         "-o", trace_tmp_path,
         "-n",

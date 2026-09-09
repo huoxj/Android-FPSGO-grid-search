@@ -2,26 +2,19 @@ from datetime import datetime
 from time import sleep
 from pathlib import Path
 
+from config import get_config
 from utils.perfetto import start_perfetto_tracing
 from utils.fpsgo import read_fpsgo_fps
 
-# TODO: need to be passed from config
-PACKAGE_NAME_SHORT = "cent.tmgp.sgame"
-PACKAGE_NAME = "com.tencent.tmgp.sgame"
-RUN_DUR = 600
-
-EARLY_STOPPING_DUR = 60
-EARLY_STOPPING_CHECK_INTERVAL = 5
-EARLY_STOPPING_THRE = 114 # need to be checked from prev optimal runs
-
 def sgame_run() -> tuple[datetime, datetime, Path]:
+    conf = get_config()
+    run_dur = conf.run_duration
+
     # Cleanly enter replay
     _reenter_replay()
 
     # Start perfetto recording immediately
-    proc, _, trace_tmp_path = start_perfetto_tracing(
-        RUN_DUR + 40 # Extra 40s for timeline waiting
-    )
+    proc, _, trace_tmp_path = start_perfetto_tracing()
 
     # Timeline 30s, record the start_time
     _wait_timeline_30s()
@@ -31,20 +24,25 @@ def sgame_run() -> tuple[datetime, datetime, Path]:
     # reads fps from fpsgo_status per 5s, if the average fps is 5 fps lower than
     # the optimal (need to be check), then early stop
     fps_sum, check_count = 0, 0
-    while (datetime.now() - start_time).total_seconds() < EARLY_STOPPING_DUR:
-        fps = read_fpsgo_fps(PACKAGE_NAME_SHORT)
+    while (datetime.now() - start_time).total_seconds() < conf.early_stop_dur:
+        t0 = datetime.now()
+        fps = read_fpsgo_fps(conf.sgame.package_name_short)
         fps_sum += fps
         check_count += 1
+
+        elapsed = (datetime.now() - t0).total_seconds()
+        sleep(conf.early_stop_check_interval - elapsed)
     fps_avg = fps_sum / check_count
-    if fps_avg < EARLY_STOPPING_THRE:
+    if fps_avg < conf.early_stop_fps_threshold:
         print(f"Fps avg {fps_avg} is lower than threshold, early stopping")
         proc.terminate()
     else:
         # Dont stop! Wait til the end
-        # p.s. plus 10s for safety
-        sleep(RUN_DUR - (datetime.now() - start_time).total_seconds() + 10)
-        if proc.poll is not None:
-            print("Warning: Perfetto tracing stopped earlier than game process")
+        sleep(run_dur - (datetime.now() - start_time).total_seconds())
+        if proc.poll() is not None:
+            print(
+                "Warning: Perfetto tracing stopped earlier than game process"
+            )
 
     # Stop perfetto recording
     end_time = datetime.now()
