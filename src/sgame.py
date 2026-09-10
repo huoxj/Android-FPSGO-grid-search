@@ -5,6 +5,7 @@ from pathlib import Path
 from config import get_config
 from utils.perfetto import start_perfetto_tracing
 from utils.fpsgo import read_fpsgo_fps
+from utils.adb import adb
 
 def sgame_run() -> tuple[datetime, datetime, Path]:
     conf = get_config()
@@ -53,13 +54,52 @@ def sgame_run() -> tuple[datetime, datetime, Path]:
     return (start_time, end_time, trace_tmp_path)
 
 def _reenter_replay():
-    # Restart game and make sure game is on
-    ...
-    # Enter the replay menu. Closes all ads or notifications
+    conf = get_config()
+
+    # 1. Restart game and make sure game is on
+    adb(f"am force-stop {conf.sgame.package_name}")
+    adb(f"am start com.tencent.tmgp.sgame/com.tencent.tmgp.sgame.SGameActivity")
+
+    # 2. Enter the replay menu. Closes all ads or notifications
     # through the opening process
-    ...
-    # Enter the replay. Wait until loaded
-    ...
+
+    # 2.1. Waiting & then press 'Enter game' button
+    """Need image module to detect button:
+    while not shown:
+        detect button image
+        sleep(1)
+    """
+    """Detected, press it
+    press(location)
+    """
+
+    # 2.2. Close all notifications, ads, etc
+    """
+    t0 = datetime.now()
+    while true :
+        detect any 'closable'
+        press close
+
+        sleep(0.5)
+
+        check if really entered main lobby; breaks
+        timeout check t0+30s
+    """
+
+    # 3. Enter the replay. Wait until loaded
+    """Press series of icons
+    press(replay_icon_location)
+    press(local_replay_tab)
+    press(first_replay_item)
+    """
+
+    """Wait and polling
+    t0 = datetime.now()
+    while True:
+        detect if entered replay
+        sleep(1)
+        timeout check t0+60s
+    """
 
 def _wait_timeline_30s():
     pass
