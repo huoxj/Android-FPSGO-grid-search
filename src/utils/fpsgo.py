@@ -33,9 +33,8 @@ def read_fpsgo_fps(package_name: str) -> int:
         if package_name not in line:
             continue
         parts = line.split()
-        if len(parts) >= 4 and parts[4].isdigit():
-            # TODO: check which part is the FPS
-            return int(parts[4])
+        if len(parts) >= 3 and parts[3].isdigit():
+            return int(parts[3])
     raise ValueError(
         f"FPS for package '{package_name}' not found in fpsgo_status"
     )

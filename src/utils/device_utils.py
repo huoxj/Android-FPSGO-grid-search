@@ -7,7 +7,8 @@ def toggle_screen(on: bool = True):
     adb(f"input keyevent {event}")
 
     # Additional unlock when on
-    adb("wm dismiss-keyguard")
+    if on:
+        adb("wm dismiss-keyguard")
 
 def screen_birghtness(percnet: float):
     """

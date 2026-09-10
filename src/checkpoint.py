@@ -1,4 +1,5 @@
 import os
+import pathlib
 from datetime import datetime
 
 from models.grid import GridRunMeta
@@ -8,6 +9,8 @@ class CheckpointMgr:
     def __init__(self, path: str):
         self.existing_runs: list[GridRunMeta] = []
         self.path = path
+        # Make sure path exists
+        pathlib.Path(path).mkdir(parents=True, exist_ok=True)
         # Walk through the dir, deserialize and collect all grid run's json meta
         files = os.listdir(path)
         for file in files:
