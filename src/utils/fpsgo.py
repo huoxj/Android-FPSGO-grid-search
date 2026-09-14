@@ -1,5 +1,5 @@
 
-from utils.adb import adb
+from utils.adb import adb_shell
 from models.fpsgo_params import FpsgoParams
 
 _FPSGO_STATUS = "/sys/kernel/fpsgo/fstb/fpsgo_status"
@@ -28,12 +28,12 @@ def apply_params(params: dict, package_name: str, check=True):
             )
 
 def read_fpsgo_fps(package_name: str) -> int:
-    raw = adb(f"cat {_FPSGO_STATUS}")
+    raw = adb_shell(f"cat {_FPSGO_STATUS}")
     for line in raw.splitlines():
         if package_name not in line:
             continue
         parts = line.split()
-        if len(parts) >= 3 and parts[3].isdigit():
+        if len(parts) > 3 and parts[3].isdigit():
             return int(parts[3])
     raise ValueError(
         f"FPS for package '{package_name}' not found in fpsgo_status"

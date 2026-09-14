@@ -8,27 +8,29 @@ from pathlib import Path
 
 from config import get_config
 
-def _make_temp_config(config_path: str, duration_s: int) -> str:
+def _make_temp_config(config_path: Path, duration_s: int) -> str:
     """Read config, substitute duration_ms, write to a temp file."""
-    text = Path(config_path).read_text()
+    text = config_path.read_text()
     text = re.sub(
         r"duration_ms:\s*\d+",
         f"duration_ms: {duration_s * 1000}",
         text,
     )
-    tmp = tempfile.NamedTemporaryFile(
+    
+    with tempfile.NamedTemporaryFile(
         mode="w", suffix=".txtpb", delete=False
-    )
-    tmp.write(text)
-    tmp.close()
+    ) as tmp:
+        tmp.write(text)
+
     return tmp.name
 
-def start_perfetto_tracing():
+def start_perfetto_tracing(name: str, duration_override: int | None = None):
     config = get_config()
 
-    duration_s = config.run_duration
-    ext_dur = duration_s + 10 # Extra 10s for safety
-    tmp_config = _make_temp_config(config.perfetto.config_file, ext_dur)
+    config_path = Path(config.perfetto.config_dir) / f"{name}.txtpb"
+    duration_s = config.run_duration if duration_override is None \
+                    else duration_override
+    tmp_config = _make_temp_config(config_path, duration_s)
     trace_tmp_path = Path(tempfile.gettempdir()) \
         / f"trace_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pftrace"
 
@@ -48,6 +50,5 @@ def start_perfetto_tracing():
         env=os.environ.copy()
     )   
 
-    bench_start = datetime.now()
-    return proc, bench_start, trace_tmp_path
+    return proc, trace_tmp_path
 

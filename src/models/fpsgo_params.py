@@ -5,7 +5,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.fields import FieldInfo
 
-from utils.adb import adb
+from utils.adb import adb_shell
 from utils.device_utils import get_tgid
 
 logger = logging.getLogger(__name__)
@@ -135,7 +135,7 @@ class FpsgoParams(BaseModel):
         failures: list[str] = []
         for name, fi in _SYSFS_FIELDS:
             node = _io(fi)["node"]
-            raw = adb(f"cat {node}")
+            raw = adb_shell(f"cat {node}")
             try:
                 vals[name] = int(raw)
             except (ValueError, TypeError):
@@ -171,12 +171,12 @@ class FpsgoParams(BaseModel):
 
         # 2. per-pid fbt 通道（cmd = 字段名）
         for name, _ in _FBT_FIELDS:
-            adb(f"echo '{name} s {tgid} {d[name]}' > {_FBT_ATTR_PATH}")
+            adb_shell(f"echo '{name} s {tgid} {d[name]}' > {_FBT_ATTR_PATH}")
 
         # 3. sysfs 通道
         for name, fi in _SYSFS_FIELDS:
             node = _io(fi)["node"]
-            adb(f"echo {d[name]} > {node}")
+            adb_shell(f"echo {d[name]} > {node}")
 
 
 def _io(fi: FieldInfo) -> dict[str, Any]:
@@ -214,7 +214,7 @@ def _read_fbt_params(
 
     解析失败（节点不可读 / tgid 块不存在）返回 None → 调用方报错。
     """
-    raw = adb(f"cat {_RENDER_INFO_PARAMS_PATH}")
+    raw = adb_shell(f"cat {_RENDER_INFO_PARAMS_PATH}")
     if not raw:
         logger.warning(f"Cannot read {_RENDER_INFO_PARAMS_PATH}")
         return None

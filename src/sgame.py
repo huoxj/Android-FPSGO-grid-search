@@ -1,109 +1,202 @@
-from datetime import datetime
-from time import sleep
+from time import sleep, monotonic
 from pathlib import Path
+import subprocess
+import select
+import cv2
+import numpy as np
 
 from config import get_config
 from utils.perfetto import start_perfetto_tracing
-from utils.fpsgo import read_fpsgo_fps
-from utils.adb import adb
+from utils.fpsgo import read_fpsgo_fps, apply_params
+from utils.adb import adb_follow, adb_shell
+from utils import misc, ui
 
-def sgame_run() -> tuple[datetime, datetime, Path]:
+def sgame_run(params: dict) -> Path:
     conf = get_config()
     run_dur = conf.run_duration
+    _prepare_resources()
 
     # Cleanly enter replay
     _reenter_replay()
-
     # Start perfetto recording immediately
-    proc, _, trace_tmp_path = start_perfetto_tracing()
+    proc, trace_tmp_path = start_perfetto_tracing(
+        name = "sgame",
+        duration_override=run_dur + 120
+    )
 
-    # Timeline 30s, record the start_time
-    _wait_timeline_30s()
-    start_time = datetime.now()
-    
+    # Timeline 0s
+    _sync_timeline_0s()
+    timeline_30s = monotonic() + 30
+    # Apply params here, so cfreq wont be overridden by game
+    sleep(2)
+    apply_params(params, conf.sgame.package_name)
+    # Timeline 30s
+    sleep(timeline_30s - monotonic())
+    perfetto_expected_deadline = monotonic() + run_dur
+    early_stop_deadline = monotonic() + conf.early_stop_dur
+
     # Early stopping check:
-    # reads fps from fpsgo_status per 5s, if the average fps is 5 fps lower than
-    # the optimal (need to be check), then early stop
+    # reads fps from fpsgo_status per 5s, if the average fps is 5 fps lower
+    # than the optimal (need to be check), then early stop
     fps_sum, check_count = 0, 0
-    while (datetime.now() - start_time).total_seconds() < conf.early_stop_dur:
-        t0 = datetime.now()
-        fps = read_fpsgo_fps(conf.sgame.package_name_short)
-        fps_sum += fps
+    while monotonic() < early_stop_deadline:
+        deadline = monotonic() + conf.early_stop_check_interval
+        fps_sum += read_fpsgo_fps(conf.sgame.package_name_short)
         check_count += 1
-
-        elapsed = (datetime.now() - t0).total_seconds()
-        sleep(conf.early_stop_check_interval - elapsed)
+        sleep(max(0, deadline - monotonic()))
     fps_avg = fps_sum / check_count
+
     if fps_avg < conf.early_stop_fps_threshold:
         print(f"Fps avg {fps_avg} is lower than threshold, early stopping")
-        proc.terminate()
     else:
-        # Dont stop! Wait til the end
-        sleep(run_dur - (datetime.now() - start_time).total_seconds())
-        if proc.poll() is not None:
-            print(
-                "Warning: Perfetto tracing stopped earlier than game process"
-            )
+        # Dont stop! Sleep and wait until perfetto stops
+        sleep(perfetto_expected_deadline - monotonic() + 5)
+        if proc.poll() is None:
+            print("Warn: Perfetto tracing stopped earlier than record dur")
 
-    # Stop perfetto recording
-    end_time = datetime.now()
-    return_code = proc.wait()
+    proc.terminate()
+    try:
+        proc.wait(timeout=30)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
 
     _exit_game()
 
-    return (start_time, end_time, trace_tmp_path)
+    return trace_tmp_path
+
 
 def _reenter_replay():
     conf = get_config()
 
     # 1. Restart game and make sure game is on
-    adb(f"am force-stop {conf.sgame.package_name}")
-    adb(f"am start com.tencent.tmgp.sgame/com.tencent.tmgp.sgame.SGameActivity")
+    adb_shell(f"am force-stop {conf.sgame.package_name}")
+    adb_shell(
+        "am start "
+        f"{conf.sgame.package_name}/{conf.sgame.activity_name}"
+    )
 
     # 2. Enter the replay menu. Closes all ads or notifications
     # through the opening process
-
+    
     # 2.1. Waiting & then press 'Enter game' button
-    """Need image module to detect button:
-    while not shown:
-        detect button image
-        sleep(1)
-    """
-    """Detected, press it
-    press(location)
-    """
+    misc.wait_for(
+        _find("start"), timeout=60, interval=2
+    )
+    _tap_by_name("start")
 
     # 2.2. Close all notifications, ads, etc
-    """
-    t0 = datetime.now()
-    while true :
-        detect any 'closable'
-        press close
+    lobby_detect_times = 0
+    deadline = monotonic() + 60
+    while lobby_detect_times < 2:
+        # Timeout check 60s
+        if monotonic() > deadline:
+            raise TimeoutError("Did not enter lobby after 60s")
 
-        sleep(0.5)
-
-        check if really entered main lobby; breaks
-        timeout check t0+30s
-    """
+        ss = ui.shot()
+        if _is_in_lobby(ss):
+            lobby_detect_times += 1
+            continue
+        lobby_detect_times = 0
+        # Try to close any popups, ads, etc
+        for name in ["back_arrow", "close_x"]:
+            if _tap_by_name(name, raise_on_missing=False):
+                break
+        sleep(1)
 
     # 3. Enter the replay. Wait until loaded
-    """Press series of icons
-    press(replay_icon_location)
-    press(local_replay_tab)
-    press(first_replay_item)
-    """
+    _tap_by_name("replay")
+    sleep(1)
+    ui.tap(230, 836) # Hard-coded 'local replay' btn location
+    sleep(1)
+    _tap_by_name("replay_card")
+    # Twice confirm on entering replay
+    confirm_times = 0
+    deadline = monotonic() + 30
+    while confirm_times < 2:
+        if monotonic() > deadline:
+            raise TimeoutError("Did not enter replay after 30s")
+        if _tap_by_name("confirm", raise_on_missing=False):
+            confirm_times += 1
+        sleep(0.5)
 
-    """Wait and polling
-    t0 = datetime.now()
-    while True:
-        detect if entered replay
-        sleep(1)
-        timeout check t0+60s
-    """
 
-def _wait_timeline_30s():
-    pass
+def _sync_timeline_0s():
+    TARGET_TAG = "sgame_unity:I"
+    TARGET_NEEDLE = (
+        "ApolloHelperCNV5 MSDK OnStatusChangeEvent, "
+        "currentStatus: 3,statusRet.ThirdCode = 3"
+    )
+
+    TIMEOUT_SECS = 60
+    TIMEOUT_MSG = f"Sync replay timeline 0s timeout after {TIMEOUT_SECS}s"
+
+    with adb_follow(
+        cmd = f"logcat -v monotonic -s {TARGET_TAG}",
+        stdout=subprocess.PIPE
+    ) as p:
+        if p.stdout is None:
+            raise RuntimeError("Failed to follow logcat")
+
+        deadline = monotonic() + TIMEOUT_SECS
+
+        # Follow logcat until target needle. Or timeout exit
+        while True:
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                raise TimeoutError(TIMEOUT_MSG)
+            
+            rlist, _, _ = select.select([p.stdout], [], [], remaining)
+            if not rlist:
+                raise TimeoutError(TIMEOUT_MSG)
+
+            line = p.stdout.readline()
+            if TARGET_NEEDLE in line:
+                return
 
 def _exit_game():
     # Exit the game completely
-    ...
+    conf = get_config()
+    adb_shell(f"am force-stop {conf.sgame.package_name}")
+
+# ========== ui utils ==========
+
+patterns: dict[str, ui.UiSpec] = {
+    "start":       (np.empty((0, 0)), (1000, 850, 1750, 1150), 0.72),
+    "replay":      (np.empty((0, 0)), (1880, 30, 2080, 130), 0.61),
+    "confirm":     (np.empty((0, 0)), (1200, 720, 2100, 1000), 0.72),
+    "replay_card": (np.empty((0, 0)), (200, 120, 900, 520), 0.72),
+    "back_arrow":  (np.empty((0, 0)), (205, 20, 420, 150), 0.72),
+    "close_x":     (np.empty((0, 0)), (2150, 100, 2560, 230), 0.70)
+}
+
+def _prepare_resources():
+    # Load all template images into memory
+    conf = get_config()
+    res_dir = Path(conf.sgame.resource_dir)
+    for name, spec in patterns.items():
+        templ = cv2.imread(res_dir / f"{name}.png")
+        if templ is None:
+            raise FileNotFoundError(f"Missing template {name}.png")
+        patterns[name] = (templ, *spec[1:])
+
+def _find(name):
+    return ui.find(ui.shot(), patterns[name])
+
+def _tap_by_name(name, raise_on_missing=True) -> bool:
+    loc = _find(name)
+    if loc is not None:
+        ui.tap(*loc)
+        return True
+    if raise_on_missing:
+        raise RuntimeError(f"Cannot find {name} on screen")
+    return False
+
+def _is_in_lobby(img) -> bool:
+    if ui.find(img, patterns["replay"]) is None:
+        return False
+    return (
+        ui.find(img, patterns["close_x"]) is None and
+        ui.find(img, patterns["back_arrow"]) is None
+    )
+

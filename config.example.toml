@@ -6,10 +6,11 @@ early_stop_check_interval = 5
 early_stop_fps_threshold = 114
 
 [perfetto]
-config_file = "./perfetto_config.txtpb"
+config_dir = "./perfetto_configs"
 record_script = "./record_android_trace"
 
 [sgame]
 package_name = "com.tencent.tmgp.sgame"
 package_name_short = "cent.tmgp.sgame"
+resource_dir = "./resources/sgame"
 

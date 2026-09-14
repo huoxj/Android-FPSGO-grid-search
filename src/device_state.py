@@ -2,7 +2,7 @@ from datetime import datetime
 
 from config import get_config
 import utils.device_utils as du
-import utils.fpsgo as fpsgo
+from utils.adb import adb_shell
 
 class DeviceMgr:
     
@@ -18,16 +18,13 @@ class DeviceMgr:
         return self._battery_okay() and \
                self._temperature_okay()
 
-    def start_run_init(self, params: dict, package_name: str):
+    def start_run_init(self, package_name: str):
         # 1. Turn on screen
         du.toggle_screen(True)
         # 2. Screen brightness
         du.screen_birghtness(1.0)
-        # 3. Apply fpsgo params
-        fpsgo.apply_params(
-            params,
-            package_name
-        )
+        # 3. Clear logcat
+        adb_shell("logcat -c")
 
     def finish_run_cleanup(self):
         du.toggle_screen(False)

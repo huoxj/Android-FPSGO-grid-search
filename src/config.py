@@ -3,9 +3,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class PerfettoConfig(BaseModel):
 
-    config_file: str = Field(
-        default="./perfetto_config.txtpb",
-        description="Perfetto config file"
+    config_dir: str = Field(
+        default="./perfetto_configs",
+        description="Perfetto config file dir"
     )
 
     record_script: str = Field(
@@ -20,6 +20,10 @@ class SgameConfig(BaseModel):
     
     package_name: str = "com.tencent.tmgp.sgame"
     package_name_short: str = "cent.tmgp.sgame"
+
+    activity_name: str = "com.tencent.tmgp.sgame.SGameActivity"
+
+    resource_dir: str = "./resources/sgame"
 
 # =========== Config root ==============
 

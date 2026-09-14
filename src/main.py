@@ -19,12 +19,15 @@ def main():
     print("Total grid size:", len(grid))
     print("Existing runs:", ckpt_manager.existing_runs_num())
     
+    completed_runs = 0
+    skipped_runs = 0
     for i, params in enumerate(grid):
         run_start_time = datetime.now()
         print(f"[{i}/{len(grid)}]: {params}")
         # Check if already searched
         if ckpt_manager.check_searched(params):
             print("Already searched. Skipping...")
+            skipped_runs += 1
             continue
 
         # Waiting for device to ready
@@ -32,25 +35,30 @@ def main():
             print("Device not ready. Waiting...")
             sleep(5)
         
-        # Pre-run check and init
-        # TODO: if set params here, limit_freq params may be override when sgame
-        # enters replay match
-        device_mgr.start_run_init(params, config.sgame.package_name)
+        try:
+            # Pre-run check and init
+            device_mgr.start_run_init(config.sgame.package_name)
 
-        # Game specific run process
-        game_start_time, game_end_time, trace_tmp_path = sgame_run()
+            # Game specific run process
+            trace_tmp_path = sgame_run(params)
 
-        # Perfetto stopped. Save run metadata
-        trace_path = config.output_dir + "/" + trace_tmp_path.name
-        shutil.copy(trace_tmp_path, trace_path)
-        ckpt_manager.save_run(
-            params=params,
-            trace_path= trace_path,
-            run_start_time=run_start_time,
-            game_start_time=game_start_time,
-            game_end_time=game_end_time
-        )
+            # Perfetto stopped. Save run metadata
+            trace_path = config.output_dir + "/" + trace_tmp_path.name
+            shutil.copy(trace_tmp_path, trace_path)
+            ckpt_manager.save_run(
+                params=params,
+                trace_path= trace_path,
+                run_start_time=run_start_time,
+            )
+            completed_runs += 1
+        except Exception as e:
+            print(f"Run failed: {e}")
+        finally:
+            # Post-run cleanup
+            device_mgr.finish_run_cleanup()
 
-        # Post-run cleanup
-        device_mgr.finish_run_cleanup()
+    print("Grid search finish. "
+          f"Runs completed/skipped/total {completed_runs}/{skipped_runs}/{len(grid)}"
+    )
+
 
