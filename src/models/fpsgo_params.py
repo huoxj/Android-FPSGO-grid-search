@@ -52,15 +52,15 @@ class FpsgoParams(BaseModel):
         description="BLC boost 值 (百分比或偏移量)",
     )
     qr_t2wnt_x: int = fbt_field(
-        default=0,
+        default=0, ge=-100, le=100,
         description="QR t2wnt X 偏移",
     )
     qr_t2wnt_y_p: int = fbt_field(
-        default=0,
+        default=0, ge=0, le=100,
         description="QR t2wnt Y 正偏移",
     )
     qr_t2wnt_y_n: int = fbt_field(
-        default=0,
+        default=0, ge=0, le=100,
         description="QR t2wnt Y 负偏移",
     )
     rescue_second_group: int = fbt_field(

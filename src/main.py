@@ -58,7 +58,7 @@ def main():
             device_mgr.finish_run_cleanup()
 
     print("Grid search finish. "
-          f"Runs completed/skipped/total {completed_runs}/{skipped_runs}/{len(grid)}"
+          "Runs completed/skipped/total "
+          f"{completed_runs}/{skipped_runs}/{len(grid)}"
     )
-
 
