@@ -81,9 +81,9 @@ def _reenter_replay():
     
     # 2.1. Waiting & then press 'Enter game' button
     misc.wait_for(
-        _find("start"), timeout=60, interval=2
+        lambda: _find("start"), timeout=60, interval=2
     )
-    _tap_by_name("start")
+    _tap("start")
 
     # 2.2. Close all notifications, ads, etc
     lobby_detect_times = 0
@@ -100,26 +100,18 @@ def _reenter_replay():
         lobby_detect_times = 0
         # Try to close any popups, ads, etc
         for name in ["back_arrow", "close_x"]:
-            if _tap_by_name(name, raise_on_missing=False):
+            if _find_and_tap(name, raise_on_missing=False):
                 break
         sleep(1)
 
     # 3. Enter the replay. Wait until loaded
-    _tap_by_name("replay")
+    _tap("replay")
     sleep(1)
-    ui.tap(230, 836) # Hard-coded 'local replay' btn location
+    _tap("local_tab")
     sleep(1)
-    _tap_by_name("replay_card")
-    # Twice confirm on entering replay
-    confirm_times = 0
-    deadline = monotonic() + 30
-    while confirm_times < 2:
-        if monotonic() > deadline:
-            raise TimeoutError("Did not enter replay after 30s")
-        if _tap_by_name("confirm", raise_on_missing=False):
-            confirm_times += 1
-        sleep(0.5)
-
+    _tap("replay_card")
+    sleep(1)
+    _tap("confirm")
 
 def _sync_timeline_0s():
     TARGET_TAG = "sgame_unity:I"
@@ -161,29 +153,38 @@ def _exit_game():
 
 # ========== ui utils ==========
 
-patterns: dict[str, ui.UiSpec] = {
-    "start":       (np.empty((0, 0)), (1000, 850, 1750, 1150), 0.72),
-    "replay":      (np.empty((0, 0)), (1880, 30, 2080, 130), 0.61),
-    "confirm":     (np.empty((0, 0)), (1200, 720, 2100, 1000), 0.72),
-    "replay_card": (np.empty((0, 0)), (200, 120, 900, 520), 0.72),
-    "back_arrow":  (np.empty((0, 0)), (205, 20, 420, 150), 0.72),
-    "close_x":     (np.empty((0, 0)), (2150, 100, 2560, 230), 0.70)
+_patterns: dict[str, ui.UiSpec] = {
+    "start":       (np.empty((0, 0)), (0, 0, 2720, 1224), 0.90),
+    "replay":      (np.empty((0, 0)), (1863, 0, 2096, 172), 0.90),
+    "back_arrow":  (np.empty((0, 0)), (0, 0, 2720, 1224), 0.85),
+    "close_x":     (np.empty((0, 0)), (0, 0, 2720, 1224), 0.85)
+}
+
+_fixed_centers = {
+    "start":       (1354, 955),
+    "replay":      (1979, 68),
+    "local_tab":   (258, 836),
+    "replay_card": (560, 487),
+    "confirm":     (1570, 866),
 }
 
 def _prepare_resources():
     # Load all template images into memory
     conf = get_config()
     res_dir = Path(conf.sgame.resource_dir)
-    for name, spec in patterns.items():
+    for name, spec in _patterns.items():
         templ = cv2.imread(res_dir / f"{name}.png")
         if templ is None:
             raise FileNotFoundError(f"Missing template {name}.png")
-        patterns[name] = (templ, *spec[1:])
+        _patterns[name] = (templ, *spec[1:])
 
 def _find(name):
-    return ui.find(ui.shot(), patterns[name])
+    return ui.find(ui.shot(), _patterns[name])
 
-def _tap_by_name(name, raise_on_missing=True) -> bool:
+def _tap(name):
+    ui.tap(*_fixed_centers[name])
+
+def _find_and_tap(name, raise_on_missing=True) -> bool:
     loc = _find(name)
     if loc is not None:
         ui.tap(*loc)
@@ -193,10 +194,10 @@ def _tap_by_name(name, raise_on_missing=True) -> bool:
     return False
 
 def _is_in_lobby(img) -> bool:
-    if ui.find(img, patterns["replay"]) is None:
+    if ui.find(img, _patterns["replay"]) is None:
         return False
     return (
-        ui.find(img, patterns["close_x"]) is None and
-        ui.find(img, patterns["back_arrow"]) is None
+        ui.find(img, _patterns["close_x"]) is None and
+        ui.find(img, _patterns["back_arrow"]) is None
     )
 

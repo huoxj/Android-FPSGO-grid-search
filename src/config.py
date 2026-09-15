@@ -1,5 +1,8 @@
 from pydantic import BaseModel, Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import (
+    BaseSettings, SettingsConfigDict,
+    TomlConfigSettingsSource
+)
 
 class PerfettoConfig(BaseModel):
 
@@ -64,11 +67,19 @@ class Config(BaseSettings):
     # Game specific conf
     sgame: SgameConfig = SgameConfig()
 
+    # Pydantic
     model_config = SettingsConfigDict(
         toml_file="config.toml",
         extra="ignore"
     )
-
+    
+    @classmethod
+    def settings_customise_sources(
+        cls, settings_cls,
+        init_settings, env_settings, dotenv_settings, file_secret_settings
+    ):
+        return (TomlConfigSettingsSource(settings_cls), init_settings,
+                env_settings, dotenv_settings, file_secret_settings)
 
 _config: Config | None = None
 def get_config() -> Config:

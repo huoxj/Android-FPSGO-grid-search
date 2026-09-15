@@ -24,7 +24,8 @@ def adb_follow(
     p = subprocess.Popen(
         ["adb", *cmd.split()],
         stdout=stdout, stderr=stderr,
-        text=True, bufsize=1
+        text=True, bufsize=1,
+        errors="replace"
     )
     try:
         yield p
