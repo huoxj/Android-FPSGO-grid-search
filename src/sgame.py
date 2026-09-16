@@ -51,7 +51,7 @@ def sgame_run(params: dict) -> Path:
     else:
         # Dont stop! Sleep and wait until perfetto stops
         sleep(perfetto_expected_deadline - monotonic() + 5)
-        if proc.poll() is None:
+        if proc.poll() is not None:
             print("Warn: Perfetto tracing stopped earlier than record dur")
 
     proc.terminate()
@@ -106,11 +106,11 @@ def _reenter_replay():
 
     # 3. Enter the replay. Wait until loaded
     _tap("replay")
-    sleep(1)
+    sleep(2)
     _tap("local_tab")
-    sleep(1)
+    sleep(2)
     _tap("replay_card")
-    sleep(1)
+    sleep(2)
     _tap("confirm")
 
 def _sync_timeline_0s():

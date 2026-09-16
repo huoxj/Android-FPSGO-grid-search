@@ -1,4 +1,4 @@
-from time import sleep
+from time import monotonic, sleep
 import shutil
 from datetime import datetime
 
@@ -31,9 +31,14 @@ def main():
             continue
 
         # Waiting for device to ready
+        t0 = monotonic()
         while not device_mgr.ready_for_start_run():
-            print("Device not ready. Waiting...")
+            print(
+                f"\rDevice not ready, elapsed: {monotonic() - t0:.2f}s",
+                end="", flush=True
+            )
             sleep(5)
+        print("\n")
         
         try:
             # Pre-run check and init
@@ -62,3 +67,5 @@ def main():
           f"{completed_runs}/{skipped_runs}/{len(grid)}"
     )
 
+if __name__ == "__main__":
+    main()

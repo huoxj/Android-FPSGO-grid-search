@@ -17,7 +17,9 @@ class CheckpointMgr:
             if not file.endswith(".json"):
                 continue
             try:
-                meta = GridRunMeta.model_validate_json(os.path.join(path, file))
+                meta = GridRunMeta.model_validate_json(
+                    pathlib.Path(path, file).read_text()
+                )
             except Exception as e:
                 print(f"Failed to load {file}: {e}")
                 continue

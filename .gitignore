@@ -11,3 +11,6 @@ wheels/
 
 # Config
 config.toml
+
+# Artifacts
+gs/
