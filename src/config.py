@@ -42,6 +42,16 @@ class Config(BaseSettings):
         description="Single run valid duration"
     )
 
+    run_max_attempts: int = Field(
+        default=8,
+        description="Max attempts for a single run"
+    )
+
+    backoff_initial_secs: int = Field(
+        default=15,
+        description="Initial backoff duration on single run"
+    )
+
     early_stop_dur: int = Field(
         default=60,
         description="Duration for early stopping check"

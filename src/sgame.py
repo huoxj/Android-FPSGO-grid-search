@@ -24,42 +24,47 @@ def sgame_run(params: dict) -> Path:
         duration_override=run_dur + 120
     )
 
-    # Timeline 0s
-    _sync_timeline_0s()
-    timeline_30s = monotonic() + 30
-    # Apply params here, so cfreq wont be overridden by game
-    sleep(2)
-    apply_params(params, conf.sgame.package_name)
-    # Timeline 30s
-    sleep(timeline_30s - monotonic())
-    perfetto_expected_deadline = monotonic() + run_dur
-    early_stop_deadline = monotonic() + conf.early_stop_dur
-
-    # Early stopping check:
-    # reads fps from fpsgo_status per 5s, if the average fps is 5 fps lower
-    # than the optimal (need to be check), then early stop
-    fps_sum, check_count = 0, 0
-    while monotonic() < early_stop_deadline:
-        deadline = monotonic() + conf.early_stop_check_interval
-        fps_sum += read_fpsgo_fps(conf.sgame.package_name_short)
-        check_count += 1
-        sleep(max(0, deadline - monotonic()))
-    fps_avg = fps_sum / check_count
-
-    if fps_avg < conf.early_stop_fps_threshold:
-        print(f"Fps avg {fps_avg} is lower than threshold, early stopping")
-    else:
-        # Dont stop! Sleep and wait until perfetto stops
-        sleep(perfetto_expected_deadline - monotonic() + 5)
-        if proc.poll() is not None:
-            print("Warn: Perfetto tracing stopped earlier than record dur")
-
-    proc.terminate()
     try:
-        proc.wait(timeout=30)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.wait()
+        # Timeline 0s
+        _sync_timeline_0s()
+        timeline_30s = monotonic() + 30
+        # Apply params here, so cfreq wont be overridden by game
+        sleep(2)
+        apply_params(params, conf.sgame.package_name)
+        # Timeline 30s
+        sleep(timeline_30s - monotonic())
+        perfetto_expected_deadline = monotonic() + run_dur
+        early_stop_deadline = monotonic() + conf.early_stop_dur
+
+        # Early stopping check:
+        # reads fps from fpsgo_status per 5s, if the average fps is 5 fps lower
+        # than the optimal (need to be check), then early stop
+        fps_sum, check_count = 0, 0
+        while monotonic() < early_stop_deadline:
+            deadline = monotonic() + conf.early_stop_check_interval
+            fps_sum += read_fpsgo_fps(conf.sgame.package_name_short)
+            check_count += 1
+            sleep(max(0, deadline - monotonic()))
+        fps_avg = fps_sum / check_count
+
+        if fps_avg < conf.early_stop_fps_threshold:
+            print(f"Fps avg {fps_avg} is lower than threshold, early stopping")
+        else:
+            # Dont stop! Sleep and wait until perfetto stops
+            sleep(perfetto_expected_deadline - monotonic() + 5)
+            if proc.poll() is not None:
+                print("Warn: Perfetto tracing stopped earlier than record dur")
+    except Exception:
+        trace_tmp_path.unlink(missing_ok=True)
+        raise
+    finally:
+        # Stop perfetto tracing
+        proc.terminate()
+        try:
+            proc.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
 
     _exit_game()
 

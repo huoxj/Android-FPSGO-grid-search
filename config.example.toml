@@ -1,6 +1,8 @@
-output_dir = gs/test
+output_dir = "gs/test"
 
 run_duration = 600
+run_max_attempts = 8
+backoff_initial_secs = 15
 early_stop_dur = 60
 early_stop_check_interval = 5
 early_stop_fps_threshold = 114

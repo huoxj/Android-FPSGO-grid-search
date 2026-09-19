@@ -73,7 +73,7 @@ class FpsgoParams(BaseModel):
     )
     gcc_enable: int = fbt_field(
         default=1, ge=0, le=2,
-        description="GCC 使能 (0=off, 1=on, 2=aggressive)",
+        description="GCC 使能 (0=off, 1=legacy, 2=version 2)",
     )
     gcc_fps_margin: int = fbt_field(
         default=0,
