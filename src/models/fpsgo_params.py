@@ -105,7 +105,7 @@ class FpsgoParams(BaseModel):
     )
     limit_rfreq_m: int = sysfs_field(
         "/sys/kernel/fpsgo/fbt/limit_rfreq_m",
-        default=0, ge=0,
+        default=0, ge=0, le=2660000,
         description="中核回救天花板 (kHz)",
     )
     limit_cfreq: int = sysfs_field(
@@ -115,7 +115,7 @@ class FpsgoParams(BaseModel):
     )
     limit_cfreq_m: int = sysfs_field(
         "/sys/kernel/fpsgo/fbt/limit_cfreq_m",
-        default=0, ge=0,
+        default=0, ge=0, le=2660000,
         description="中核地板 (kHz)",
     )
 
