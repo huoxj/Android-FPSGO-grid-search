@@ -7,6 +7,15 @@ early_stop_dur = 60
 early_stop_check_interval = 5
 early_stop_fps_threshold = 114
 
+[grid]
+blc_boost = [100]
+qr_t2wnt_x = [-30, -10]
+rescue_enhance_f = [25]
+"qr_t2wnt_y_p,qr_t2wnt_y_n" = [0, 30]
+"limit_rfreq,limit_rfreq_m" = [[2700000, 2600000], [2800000, 2660000]]
+"limit_cfreq,limit_cfreq_m" = [[2800000, 2500000], [2800000, 2660000]]
+gcc_enable = [1, 2]
+
 [perfetto]
 config_dir = "./perfetto_configs"
 record_script = "./record_android_trace"

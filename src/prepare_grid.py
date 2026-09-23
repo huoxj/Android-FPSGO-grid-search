@@ -1,13 +1,13 @@
 from itertools import product
 
-candidate_params = {
-    "blc_boost": [79, 100],
-    "qr_t2wnt_x": [-30, 0, 30],
-    "rescue_enhance_f": [10, 25, 50],
-    ("qr_t2wnt_y_p", "qr_t2wnt_y_n"): [0, 30],
-    ("limit_rfreq", "limit_rfreq_m"): [(2700000, 2600000)],
-    ("limit_cfreq", "limit_cfreq_m"): [(2700000, 2300000)]
-}
+from config import get_config
+
+
+def _candidate_params() -> dict:
+    return {
+            tuple(k.split(",")) if "," in k else k: v
+            for k, v in get_config().grid.items()
+            }
 
 def _axis(key, values) -> tuple[tuple, list[tuple]]:
     """Handle candidate params with 3 cases:
@@ -21,17 +21,18 @@ def _axis(key, values) -> tuple[tuple, list[tuple]]:
     keys = key if isinstance(key, tuple) else (key,)
     vss: list[tuple] = []
     for v in values:
-        if isinstance(v, tuple):
+        if isinstance(v, (tuple, list)):
             if len(v) != len(keys):
                 raise ValueError(f"Value {v} does not match keys {keys}")
-            vss.append(v)
+            vss.append(tuple(v))
         else:
             # Broadcast single value
             vss.append((v,) * len(keys))
     return keys, vss
 
 def get_grid() -> list[dict]:
-    axes = [_axis(key, values) for key, values in candidate_params.items()]
+    cparams = _candidate_params()
+    axes = [_axis(key, values) for key, values in cparams.items()]
 
     grid: list[dict] = []
     for combo in product(*[vss for _, vss in axes]):

@@ -4,6 +4,7 @@ from pydantic_settings import (
     TomlConfigSettingsSource
 )
 
+
 class PerfettoConfig(BaseModel):
 
     config_dir: str = Field(
@@ -35,6 +36,11 @@ class Config(BaseSettings):
     output_dir: str = Field(
         default="gs/test",
         description="Output directory for traces and metadata"
+    )
+
+    grid: dict[str, list] = Field(
+        default_factory=dict,
+        description="FPSGO param axes for grid search. Key 'a,b' = joint axis"
     )
 
     run_duration: int = Field(
