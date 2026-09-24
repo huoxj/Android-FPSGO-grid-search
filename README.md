@@ -22,7 +22,27 @@
 
 ## 运行
 
-复制 `config.example.toml` 为 `config.toml` 并修改配置
+### 从源码运行
+
+克隆本仓库到本地，进入仓库目录。
+
+推荐使用 uv 管理 Python 虚拟环境。将模板配置文件复制为 `config.toml` 并修改相应配置。详见[配置](#配置)节。
+
+修改完成后，运行 `src/main.py` 即可自动开始调参。
+
+```bash
+uv sync
+cp config.example.toml config.toml
+uv run src/main.py
+```
+
+> 运行前，请确保系统已经安装 adb，并且 adb 已经连接到目标设备。可用 `adb devices` 确认。
+
+### 从 release 版本运行
+
+先修改 `config.toml` 的对应配置。见[配置](#配置)节。
+
+之后直接运行 `fpsgo-optim` 或 `fpsgo-tools` 即可自动开始调参。
 
 ## 配置
 
