@@ -16,7 +16,7 @@ rm -rf "$PKG" && mkdir -p "$PKG"
 mv "dist/$NAME" "$PKG/$NAME"
 cp -r resources perfetto_configs docs "$PKG/"
 cp config.example.toml "$PKG/config.toml"
-cp README.md "$PKG/"
+cp README.md LICENSE "$PKG/"
 
 (cd dist && zip -rq "$(basename "$PKG").zip" "$(basename "$PKG")")
 echo "done: dist/$(basename "$PKG").zip"

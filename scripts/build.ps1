@@ -18,9 +18,9 @@ New-Item -ItemType Directory -Path $Pkg | Out-Null
 Move-Item "dist\$Name.exe" "$Pkg\$Name.exe" -Force
 Copy-Item -Recurse resources, perfetto_configs, docs -Destination $Pkg
 Copy-Item config.example.toml "$Pkg\config.toml"
-Copy-Item README.md $Pkg
+Copy-Item README.md, LICENSE $Pkg
 
-Compress-Archive -Path $Pkg -DestinationPath "dist\${Name}-${Version}.zip" -Force
+Compress-Archive -Path $Pkg -DestinationPath "dist\${Name}-${Version}-${Target}.zip" -Force
 Write-Host "done: dist\${Name}-${Version}-${Target}.zip"
 
 Pop-Location
