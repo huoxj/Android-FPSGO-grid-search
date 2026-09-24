@@ -6,6 +6,7 @@ from config import get_config
 from prepare_grid import get_grid
 from checkpoint import CheckpointMgr
 from device_state import DeviceMgr
+from report import report
 from sgame import sgame_run
 
 _NON_RETRYABLE = (FileNotFoundError, KeyError)
@@ -60,6 +61,13 @@ def main():
           "Runs completed/skipped/total "
           f"{completed_runs}/{skipped_runs}/{len(grid)}"
     )
+
+    print( "Generating report... ")
+    print(
+        "(May take a while to download trace_processor_shell. "
+        "If it takes too long, try using proxy)"
+    )
+    report(config.output_dir)
 
 def single_run(
     device_mgr: DeviceMgr,

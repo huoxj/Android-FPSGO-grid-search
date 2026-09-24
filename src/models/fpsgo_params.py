@@ -14,7 +14,12 @@ _FBT_ATTR_PATH = "/sys/kernel/fpsgo/fbt/fbt_attr_by_pid"
 _RENDER_INFO_PARAMS_PATH = "/sys/kernel/fpsgo/common/render_info_params"
 
 
-def fbt_field(*, dump_name: str | None = None, **kw: Any) -> Any:
+def fbt_field(
+    *,
+    dump_name: str | None = None,
+    abbr: str | None = None,
+    **kw: Any
+) -> Any:
     """per-pid fbt attr 参数。
 
     dump_name: render_info_params dump 里的键；缺省 = 字段名。
@@ -26,15 +31,19 @@ def fbt_field(*, dump_name: str | None = None, **kw: Any) -> Any:
     """
     return Field(
         **kw,
-        json_schema_extra={"fpsgo_io": {"kind": "fbt", "dump_name": dump_name}},
+        json_schema_extra={"fpsgo_io": {
+            "kind": "fbt", "dump_name": dump_name, "abbr": abbr
+        }},
     )
 
 
-def sysfs_field(node: str, **kw: Any) -> Any:
+def sysfs_field(node: str, abbr: str | None = None, **kw: Any) -> Any:
     """模块/内核 sysfs 参数：``echo {val} > {node}``。"""
     return Field(
         **kw,
-        json_schema_extra={"fpsgo_io": {"kind": "sysfs", "node": node}},
+        json_schema_extra={"fpsgo_io": {
+            "kind": "sysfs", "node": node, "abbr": abbr
+        }},
     )
 
 
@@ -49,18 +58,22 @@ class FpsgoParams(BaseModel):
     )
     blc_boost: int = fbt_field(
         default=100, ge=0,
+        abbr="blc",
         description="BLC boost 值 (百分比或偏移量)",
     )
     qr_t2wnt_x: int = fbt_field(
         default=0, ge=-100, le=100,
+        abbr="qr_x",
         description="QR t2wnt X 偏移",
     )
     qr_t2wnt_y_p: int = fbt_field(
         default=0, ge=0, le=100,
+        abbr="qr_yp",
         description="QR t2wnt Y 正偏移",
     )
     qr_t2wnt_y_n: int = fbt_field(
         default=0, ge=0, le=100,
+        abbr="qr_yn",
         description="QR t2wnt Y 负偏移",
     )
     rescue_second_group: int = fbt_field(
@@ -73,6 +86,7 @@ class FpsgoParams(BaseModel):
     )
     gcc_enable: int = fbt_field(
         default=1, ge=0, le=2,
+        abbr="gcc",
         description="GCC 使能 (0=off, 1=legacy, 2=version 2)",
     )
     gcc_fps_margin: int = fbt_field(
@@ -96,26 +110,31 @@ class FpsgoParams(BaseModel):
     rescue_enhance_f: int = sysfs_field(
         "/sys/module/mtk_fpsgo/parameters/rescue_enhance_f",
         default=25, ge=0,
+        abbr="qr_f",
         description="Rescue enhance 因子",
     )
     limit_rfreq: int = sysfs_field(
         "/sys/kernel/fpsgo/fbt/limit_rfreq",
         default=0, ge=0,
+        abbr="lim_r",
         description="大核回救天花板 (kHz)",
     )
     limit_rfreq_m: int = sysfs_field(
         "/sys/kernel/fpsgo/fbt/limit_rfreq_m",
         default=0, ge=0, le=2660000,
+        abbr="lim_rm",
         description="中核回救天花板 (kHz)",
     )
     limit_cfreq: int = sysfs_field(
         "/sys/kernel/fpsgo/fbt/limit_cfreq",
         default=0, ge=0,
+        abbr="lim_c",
         description="大核地板 (kHz)",
     )
     limit_cfreq_m: int = sysfs_field(
         "/sys/kernel/fpsgo/fbt/limit_cfreq_m",
         default=0, ge=0, le=2660000,
+        abbr="lim_cm",
         description="中核地板 (kHz)",
     )
 

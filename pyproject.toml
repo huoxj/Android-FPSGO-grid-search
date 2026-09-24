@@ -10,6 +10,8 @@ requires-python = ">=3.14"
 dependencies = [
     "numpy>=2.5.3",
     "opencv-python>=5.0.0.93",
+    "pandas>=3.0.6",
+    "perfetto>=0.58.2",
     "pydantic>=2.13.5",
     "pydantic-settings>=2.15.0",
 ]
