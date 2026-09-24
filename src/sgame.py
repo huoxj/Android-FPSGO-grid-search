@@ -1,9 +1,10 @@
 from time import sleep, monotonic
 from pathlib import Path
 import subprocess
-import select
 import cv2
 import numpy as np
+import queue
+import threading
 
 from config import get_config
 from utils.perfetto import start_perfetto_tracing
@@ -131,6 +132,16 @@ def _sync_timeline_0s():
     ) as p:
         if p.stdout is None:
             raise RuntimeError("Failed to follow logcat")
+        
+        # Cannot use select.select on Windows
+        q: queue.Queue[str] = queue.Queue()
+
+        def _reader():
+            assert p.stdout is not None
+            for line in p.stdout:
+                q.put(line)
+
+        threading.Thread(target=_reader, daemon=True).start()
 
         deadline = monotonic() + TIMEOUT_SECS
 
@@ -139,12 +150,12 @@ def _sync_timeline_0s():
             remaining = deadline - monotonic()
             if remaining <= 0:
                 raise TimeoutError(TIMEOUT_MSG)
-            
-            rlist, _, _ = select.select([p.stdout], [], [], remaining)
-            if not rlist:
+
+            try:
+                line = q.get(timeout=remaining)
+            except queue.Empty:
                 raise TimeoutError(TIMEOUT_MSG)
 
-            line = p.stdout.readline()
             if TARGET_NEEDLE in line:
                 return
 
