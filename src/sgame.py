@@ -120,10 +120,7 @@ def _reenter_replay():
 
 def _sync_timeline_0s():
     TARGET_TAG = "sgame_unity:I"
-    TARGET_NEEDLE = (
-        "ApolloHelperCNV5 MSDK OnStatusChangeEvent, "
-        "currentStatus: 3,statusRet.ThirdCode = 3"
-    )
+    TARGET_NEEDLE = ("Enter DoBattleStartFightStart")
 
     TIMEOUT_SECS = 60
     TIMEOUT_MSG = f"Sync replay timeline 0s timeout after {TIMEOUT_SECS}s"
