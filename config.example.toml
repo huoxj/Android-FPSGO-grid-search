@@ -18,7 +18,6 @@ gcc_enable = [1, 2]
 
 [perfetto]
 config_dir = "./perfetto_configs"
-record_script = "./record_android_trace"
 
 [sgame]
 package_name = "com.tencent.tmgp.sgame"

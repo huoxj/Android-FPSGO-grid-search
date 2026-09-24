@@ -12,12 +12,6 @@ class PerfettoConfig(BaseModel):
         description="Perfetto config file dir"
     )
 
-    record_script: str = Field(
-        default="./record_android_trace",
-        description="Perfetto record script path"
-    )
-
-
 # ========== Game Specific Configurations ===========
 
 class SgameConfig(BaseModel):

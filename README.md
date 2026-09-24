@@ -44,7 +44,6 @@ ready_temp_threshold = 35000   # 设备就绪温度阈值（毫摄氏度）
 
 [perfetto]
 config_dir = "./perfetto_configs"   # .txtpb 配置目录（sgame.txtpb 等）
-record_script = "./record_android_trace"
 
 [sgame]
 package_name = "com.tencent.tmgp.sgame"

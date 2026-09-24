@@ -1,12 +1,37 @@
-import os
-import sys
 import re
 import subprocess
 import tempfile
+import threading
 from datetime import datetime
 from pathlib import Path
 
 from config import get_config
+from utils.record_trace import (
+    setup_arguments, start_trace, request_stop, _stop_requested
+)
+
+class _Recorder:
+    def __init__(self, thread, err):
+        self._thread = thread
+        self._err = err
+
+    def poll(self):
+        if self._thread.is_alive():
+            return None
+        return 1 if self._err else 0
+
+    def terminate(self):
+        request_stop()
+
+    def kill(self):
+        request_stop()
+
+    def wait(self, timeout=None):
+        self._thread.join(timeout)
+        if self._thread.is_alive():
+            raise subprocess.TimeoutExpired("record_trace", timeout or 0.0)
+        if self._err:
+            raise self._err[0]
 
 def _make_temp_config(config_path: Path, duration_s: int) -> str:
     """Read config, substitute duration_ms, write to a temp file."""
@@ -34,21 +59,27 @@ def start_perfetto_tracing(name: str, duration_override: int | None = None):
     trace_tmp_path = Path(tempfile.gettempdir()) \
         / f"trace_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pftrace"
 
-    cmd = [
-        sys.executable,
-        config.perfetto.record_script,
-        "-c", tmp_config,
-        "-o", trace_tmp_path,
-        "-n",
-    ]
+    try:
+        args = setup_arguments([
+            "-c", tmp_config, "-o", str(trace_tmp_path), "-n"
+        ])
+    except SystemExit as e:
+        raise RuntimeError(
+            f"record_trace init failed (adb not in PATH?): {e}"
+        ) from e
 
-    proc = subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=sys.stderr,
-        text=True,
-        env=os.environ.copy()
-    )   
+    _stop_requested.clear()
+    err: list[BaseException] = []
 
-    return proc, trace_tmp_path
+    def _run():
+        try:
+            start_trace(args, print_log=False)
+        except BaseException as e:
+            err.append(e)
+        finally:
+            Path(tmp_config).unlink(missing_ok=True)
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    return _Recorder(t, err), trace_tmp_path
 
