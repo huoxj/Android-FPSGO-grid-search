@@ -5,6 +5,8 @@ build/
 dist/
 wheels/
 *.egg-info
+.pyarmor/
+*.spec
 
 # Virtual environments
 .venv
