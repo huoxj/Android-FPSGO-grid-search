@@ -139,11 +139,11 @@ class FpsgoParams(BaseModel):
     )
 
     @classmethod
-    def default(cls) -> FpsgoParams:
+    def default(cls) -> "FpsgoParams":
         return cls()
 
     @classmethod
-    def read(cls, package_name: str) -> FpsgoParams:
+    def read(cls, package_name: str) -> "FpsgoParams":
         """从设备读回全量参数，构造 FpsgoParams。"""
         # 1. Get tgid
         tgid = get_tgid(package_name)
@@ -203,7 +203,7 @@ def _io(fi: FieldInfo) -> dict[str, Any]:
     extra = fi.json_schema_extra
     meta = extra.get("fpsgo_io") if isinstance(extra, dict) else None
     if not isinstance(meta, dict):
-        raise RuntimeError(
+        raise TypeError(
             f"fpsgo field '{_field_name_of(fi)}' lacks fpsgo_io metadata: "
             "declare with fbt_field()/sysfs_field()"
         )
