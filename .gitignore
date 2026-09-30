@@ -16,3 +16,4 @@ config.toml
 
 # Artifacts
 gs/
+vendor/

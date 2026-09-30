@@ -62,12 +62,10 @@ def main():
           f"{completed_runs}/{skipped_runs}/{len(grid)}"
     )
 
-    print( "Generating report... ")
-    print(
-        "(May take a while to download trace_processor_shell. "
-        "If it takes too long, try using proxy)"
-    )
+    print("Generating report... ")
     report(config.output_dir)
+
+    input("\n\nSearch finished, press Enter to exit...")
 
 def single_run(
     device_mgr: DeviceMgr,

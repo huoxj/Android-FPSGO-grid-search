@@ -1,3 +1,4 @@
+import os
 import json
 from datetime import datetime
 from pathlib import Path
@@ -5,7 +6,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from perfetto.trace_processor import TraceProcessor
+from perfetto.trace_processor.api import TraceProcessorConfig
 
+from config import get_config
 from checkpoint import CheckpointMgr
 from models.fpsgo_params import FpsgoParams
 
@@ -14,7 +17,19 @@ JANK_TIERS = {"small": 12.0, "jank": 16.67, "severe": 125.0}
 
 
 def analyze_trace(path: str) -> dict:
-    tp = TraceProcessor(file_path=path)
+    tp_bin = Path("vendor/perfetto") / Path(
+        "tp_shell_bin.exe" if os.name == "nt" else "tp_shell_bin"
+    )
+    if not tp_bin.is_file():
+        raise FileNotFoundError(
+            f"Missing tp_shell binary: {tp_bin}. Try reinstalling the program"
+        )
+
+    tp = TraceProcessor(
+        file_path=path,
+        config=TraceProcessorConfig(bin_path=str(tp_bin))
+    )
+
     try:
         ts = tp.query(SQL_TS) \
                .as_pandas_dataframe()["ts"] \

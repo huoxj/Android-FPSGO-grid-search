@@ -18,7 +18,6 @@
 - Python >= 3.12
 - 已连接并授权 adb 设备；`adb devices` 能显示设备已经连接
 - 目标设备的 `adb shell` 需要 root 执行权限
-- 报告分析需要主机平台的 Perfetto `trace_processor` 二进制
 
 ## 运行
 
@@ -28,7 +27,7 @@
 
 推荐使用 uv 管理 Python 虚拟环境。将模板配置文件复制为 `config.toml` 并修改相应配置。详见[配置](#配置)节。
 
-修改完成后，运行 `src/main.py` 即可自动开始调参。
+修改完成后，运行 `src/main.py` 即可自动开始调参。搜索完毕后，会在命令行中输出简报，以及在 `output_dir` 下生成详细报告文件。
 
 ```bash
 uv sync
@@ -42,7 +41,7 @@ uv run src/main.py
 
 先修改 `config.toml` 的对应配置。见[配置](#配置)节。
 
-之后直接运行 `fpsgo-optim` 或 `fpsgo-tools` 即可自动开始调参。
+之后直接运行 `fpsgo-optim` 或 `fpsgo-tools` 即可自动开始调参。搜索完毕后，会在命令行中输出简报，以及在 `output_dir` 下生成详细报告文件。
 
 ## 配置
 
