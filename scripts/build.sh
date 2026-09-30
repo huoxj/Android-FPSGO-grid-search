@@ -6,10 +6,13 @@ NAME=fpsgo-optim
 VERSION=$(git describe --tags --always 2>/dev/null || echo dev)
 TARGET="$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m)"
 
-rm -rf dist build .pyarmor/pack
+rm -rf dist build .pyarmor/pack main.spec
 uv run pyarmor gen --pack onefile -O dist src/main.py
 
-mv dist/main "dist/$NAME"
+uv run pyinstaller --onefile --name "$NAME" \
+  --additional-hooks-dir .pyarmor/pack \
+  --collect-data perfetto \
+  .pyarmor/pack/dist/main.py
 
 PKG="dist/${NAME}-${VERSION}-${TARGET}"
 rm -rf "$PKG" && mkdir -p "$PKG"

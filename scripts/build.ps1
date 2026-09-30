@@ -7,10 +7,13 @@ $Version = git describe --tags --always 2>$null
 if (-not $Version) { $Version = 'dev' }
 $Target = "windows-$($env:PROCESSOR_ARCHITECTURE.ToLower())"
 
-Remove-Item -Recurse -Force dist, build, .pyarmor\pack -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force dist, build, .pyarmor\pack, main.spec -ErrorAction SilentlyContinue
 uv run pyarmor gen --pack onefile -O dist src/main.py
 
-Move-Item "dist\main.exe" "dist\$Name.exe" -Force
+uv run pyinstaller --onefile --name $Name `
+  --additional-hooks-dir .pyarmor\pack `
+  --collect-data perfetto `
+  .pyarmor\pack\dist\main.py
 
 $Pkg = "dist\${Name}-${Version}-${Target}"
 Remove-Item -Recurse -Force $Pkg -ErrorAction SilentlyContinue
