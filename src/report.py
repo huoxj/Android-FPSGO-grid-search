@@ -13,7 +13,49 @@ from checkpoint import CheckpointMgr
 from models.fpsgo_params import FpsgoParams
 
 SQL_TS = "SELECT ts FROM actual_frame_timeline_slice ORDER BY ts"
+SQL_MARKERS = "SELECT ts FROM android_logs WHERE tag='grid' ORDER BY ts"
+SQL_POWER = (
+    "SELECT c.ts, t.name, c.value FROM counter c "
+    "JOIN counter_track t ON c.track_id = t.id "
+    "WHERE t.name IN ('batt.power_mw', 'batt.current_ua') "
+    "AND c.ts >= {lo} AND c.ts <= {hi} ORDER BY c.ts"
+)
 JANK_TIERS = {"small": 12.0, "jank": 16.67, "severe": 125.0}
+# Cut 5s off each marker-window end: RUN_START lands while the game is
+# still settling, RUN_END races the perfetto stop (verified口径, verify_ab)
+TRIM_NS = 5_000_000_000
+
+
+def _power_stats(tp) -> dict:
+    """Whole-device power inside the RUN_START..RUN_END marker window.
+
+    Meaningful only in charge-cut runs; old traces (no voltage counter,
+    no markers) yield {} and the report shows '-'.
+    """
+    marks = tp.query(SQL_MARKERS).as_pandas_dataframe()
+    if marks.empty:
+        return {}
+    lo = int(marks["ts"].iloc[0]) + TRIM_NS
+    hi = int(marks["ts"].iloc[-1]) - TRIM_NS
+    if hi <= lo:
+        return {}
+    df = tp.query(SQL_POWER.format(lo=lo, hi=hi)).as_pandas_dataframe()
+    if df.empty:
+        return {}
+    pw = df[df["name"] == "batt.power_mw"]["value"].to_numpy(dtype=float)
+    if not pw.size:
+        return {}
+    out = {
+        "power_avg_mw": round(float(pw.mean()), 1),
+        "power_median_mw": round(float(np.median(pw)), 1),
+        "n_power": int(pw.size),
+    }
+    cur = df[df["name"] == "batt.current_ua"]["value"].to_numpy(dtype=float)
+    if cur.size:
+        # Ratio of discharging samples; <1.0 exposes charge-current
+        # pollution (cut lost mid-run / charger reconnected)
+        out["discharge_ratio"] = round(float((cur < 0).mean()), 4)
+    return out
 
 
 def analyze_trace(path: str) -> dict:
@@ -34,21 +76,22 @@ def analyze_trace(path: str) -> dict:
         ts = tp.query(SQL_TS) \
                .as_pandas_dataframe()["ts"] \
                .to_numpy(dtype=np.int64)
+        if ts.size < 2:
+            return {}
+        gaps_ms = np.diff(ts) / 1e6
+        fps_s = np.bincount((ts - ts[0]) // 1_000_000_000)[1:-1]
+        return {
+            "n_frames": int(ts.size),
+            "dur_s": float((ts[-1] - ts[0]) / 1e9),
+            "fps_avg": float(fps_s.mean() if fps_s.size else 0.0),
+            "fps_std": float(fps_s.std(ddof=1) if fps_s.size > 1 else 0.0),
+            **{
+                f"{k}": int((gaps_ms > t).sum()) for k, t in JANK_TIERS.items()
+            },
+            **_power_stats(tp),
+        }
     finally:
         tp.close()
-    if ts.size < 2:
-        return {}
-    gaps_ms = np.diff(ts) / 1e6
-    fps_s = np.bincount((ts - ts[0]) // 1_000_000_000)[1:-1]
-    return {
-        "n_frames": int(ts.size),
-        "dur_s": (ts[-1] - ts[0]) / 1e9,
-        "fps_avg": fps_s.mean() if fps_s.size else 0.0,
-        "fps_std": fps_s.std(ddof=1) if fps_s.size > 1 else 0.0,
-        **{
-            f"{k}": int((gaps_ms > t).sum()) for k, t in JANK_TIERS.items()
-        },
-    }
 
 
 def collect(output_dir: str) -> pd.DataFrame:
@@ -79,6 +122,7 @@ def _abbr(key: str) -> str:
 
 
 def _mtable(df: pd.DataFrame) -> str:
+    has_power = "power_avg_mw" in df.columns
     d = pd.DataFrame({
         "#": range(1, len(df) + 1),
         "time": df["time"],
@@ -90,6 +134,11 @@ def _mtable(df: pd.DataFrame) -> str:
         "jank": df["jank"].astype(int),
         "jank_l": df["severe"].astype(int),
     })
+    if has_power:
+        # Traces without voltage counter/markers carry NaN -> '-'
+        d["P_avg_mW"] = df["power_avg_mw"].round(0)
+        d["disch%"] = (df["discharge_ratio"] * 100).round(1)
+        d = d.fillna({"P_avg_mW": "-", "disch%": "-"})
     return d.to_string(index=False)
 
 

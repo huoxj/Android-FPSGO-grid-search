@@ -8,6 +8,7 @@ from checkpoint import CheckpointMgr
 from device_state import DeviceMgr
 from report import report
 from sgame import sgame_run
+from power import cut_for_measurement, restore_charging
 
 _NON_RETRYABLE = (FileNotFoundError, KeyError)
 
@@ -74,7 +75,7 @@ def single_run(
 ):
     config = get_config()
 
-    # Waiting for device to ready
+    # Waiting for device to ready (hot state: cooled below per-zone thresholds)
     t0 = monotonic()
     while not device_mgr.ready_for_start_run():
         print(
@@ -84,9 +85,16 @@ def single_run(
         sleep(5)
     print("\n")
 
-    run_start_time = datetime.now()
-    
+    if config.power.enable:
+        # Blocks until the charge path is cut and verified (PE5 may stall
+        # this for minutes after a full charge). Raises on failure, which
+        # the retry loop in main() treats as a retryable run failure.
+        power.cut_for_measurement()
+
     try:
+        start_temps = device_mgr.read_temps()
+        run_start_time = datetime.now()
+
         # Pre-run check and init
         device_mgr.start_run_init(config.sgame.package_name)
 
@@ -100,8 +108,13 @@ def single_run(
             params=params,
             trace_path= trace_path,
             run_start_time=run_start_time,
+            start_temps=start_temps,
         )
     finally:
+        if config.power.enable:
+            # Restore even when the run failed; a failure to restore raises
+            # so the retry loop's cut_for_measurement sees a known state.
+            power.restore_charging()
         # Post-run cleanup
         device_mgr.finish_run_cleanup()
 

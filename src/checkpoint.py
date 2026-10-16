@@ -30,11 +30,13 @@ class CheckpointMgr:
         params: dict,
         trace_path: str,
         run_start_time: datetime,
+        start_temps: dict[str, int] | None = None,
     ) -> GridRunMeta:
         meta = GridRunMeta(
             grid_params=params,
             trace_path=trace_path,
             time=run_start_time,
+            start_temps=start_temps,
         )
         meta_path = os.path.join(
             self.path, f"{run_start_time.strftime('%Y%m%d_%H%M%S')}.json"

@@ -23,6 +23,17 @@ class SgameConfig(BaseModel):
 
     resource_dir: str = "./resources/sgame"
 
+# =========== Power measurement ==============
+
+class PowerConfig(BaseModel):
+    # Software charge-cut via /proc/tc_charger_cmd/en_power_path (X6873).
+    # Required for meaningful batt.power_mw; runs fail loudly on devices
+    # without the node - disable there.
+    enable: bool = Field(
+        default=True,
+        description="Cut charging during runs for battery-side power measurement"
+    )
+
 # =========== Config root ==============
 
 class Config(BaseSettings):
@@ -83,6 +94,8 @@ class Config(BaseSettings):
     )
 
     perfetto: PerfettoConfig = PerfettoConfig()
+
+    power: PowerConfig = PowerConfig()
 
     # Game specific conf
     sgame: SgameConfig = SgameConfig()

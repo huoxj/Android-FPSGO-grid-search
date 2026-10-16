@@ -29,6 +29,10 @@ class DeviceMgr:
     def finish_run_cleanup(self):
         du.toggle_screen(False)
 
+    def read_temps(self) -> dict[str, int]:
+        # Same zones as _temperature_okay; for run metadata
+        return {f"zone{z}": du.read_temp(z) for z in (0, 44, 53)}
+
     def _battery_okay(self) -> bool:
         """
         We are planning to grid search with charger on, because we currently

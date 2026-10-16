@@ -34,6 +34,9 @@ def sgame_run(params: dict) -> Path:
         apply_params(params, conf.sgame.package_name)
         # Timeline 30s
         sleep(timeline_30s - monotonic())
+        # Measurement window start marker: lands in the trace's android.log,
+        # the report extracts power stats between RUN_START/RUN_END.
+        _grid_marker("RUN_START")
         perfetto_expected_deadline = monotonic() + run_dur
         early_stop_deadline = monotonic() + conf.early_stop_dur
 
@@ -59,6 +62,8 @@ def sgame_run(params: dict) -> Path:
         trace_tmp_path.unlink(missing_ok=True)
         raise
     finally:
+        # Window end marker must precede perfetto stop, else it misses the trace
+        _grid_marker("RUN_END")
         # Stop perfetto tracing
         proc.terminate()
         try:
@@ -163,6 +168,13 @@ def _exit_game():
     # Exit the game completely
     conf = get_config()
     adb_shell(f"am force-stop {conf.sgame.package_name}")
+
+def _grid_marker(text: str):
+    # adb_shell swallows errors into its return string; a silently missing
+    # marker would kill the whole power pipeline downstream, so fail loud.
+    out = adb_shell(f"log -t grid {text}")
+    if out.startswith("Error"):
+        raise RuntimeError(f"grid marker failed: {out}")
 
 # ========== ui utils ==========
 
