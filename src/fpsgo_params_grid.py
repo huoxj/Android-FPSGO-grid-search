@@ -7,7 +7,7 @@ def _candidate_params() -> dict:
     return {
             tuple(k.split(",")) if "," in k else k: v
             for k, v in get_config().grid.items()
-            }
+    }
 
 def _axis(key, values) -> tuple[tuple, list[tuple]]:
     """Handle candidate params with 3 cases:
@@ -30,7 +30,7 @@ def _axis(key, values) -> tuple[tuple, list[tuple]]:
             vss.append((v,) * len(keys))
     return keys, vss
 
-def get_grid() -> list[dict]:
+def get_grid_samples() -> list[dict]:
     cparams = _candidate_params()
     axes = [_axis(key, values) for key, values in cparams.items()]
 

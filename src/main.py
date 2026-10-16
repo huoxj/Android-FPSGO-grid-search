@@ -3,7 +3,7 @@ import shutil
 from datetime import datetime
 
 from config import get_config
-from prepare_grid import get_grid
+from fpsgo_params_grid import get_grid_samples as get_grid
 from checkpoint import CheckpointMgr
 from device_state import DeviceMgr
 from report import report

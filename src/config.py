@@ -73,7 +73,7 @@ class Config(BaseSettings):
     )
 
     perfetto: PerfettoConfig = PerfettoConfig()
-    
+
     # Game specific conf
     sgame: SgameConfig = SgameConfig()
 
