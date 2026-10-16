@@ -7,6 +7,11 @@ early_stop_dur = 60
 early_stop_check_interval = 5
 early_stop_fps_threshold = 114
 
+# Per-zone ready thresholds (milli-°C): zone0=soc_max / zone44=tsx_ntc / zone53=battery
+ready_temp_soc_max = 60000
+ready_temp_tsx = 48000
+ready_temp_battery = 42000
+
 [grid]
 blc_boost = [100]
 qr_t2wnt_x = [-30, -10]

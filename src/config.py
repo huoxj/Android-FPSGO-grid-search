@@ -67,9 +67,19 @@ class Config(BaseSettings):
         description="FPS threshold for early stopping"
     )
 
-    ready_temp_threshold: int = Field(
-        default=35000,
-        description="Temperature threshold for device readiness"
+    # Per-zone ready temperature thresholds (milli-°C), simulating a
+    # continuous-run hot state. zone0=soc_max, zone44=tsx_ntc, zone53=battery
+    ready_temp_soc_max: int = Field(
+        default=60000,
+        description="Ready threshold for thermal zone 0 (soc_max)"
+    )
+    ready_temp_tsx: int = Field(
+        default=48000,
+        description="Ready threshold for thermal zone 44 (tsx_ntc)"
+    )
+    ready_temp_battery: int = Field(
+        default=42000,
+        description="Ready threshold for thermal zone 53 (battery)"
     )
 
     perfetto: PerfettoConfig = PerfettoConfig()

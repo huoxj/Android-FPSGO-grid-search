@@ -44,14 +44,17 @@ class DeviceMgr:
         # 0: soc_max
         # 44: tsx_ntc
         # 53: battery
-        soc_max = du.read_temp(0)
-        tsx_ntc = du.read_temp(44)
-        battery = du.read_temp(53)
-        
+        thresholds = {
+            0: self.config.ready_temp_soc_max,
+            44: self.config.ready_temp_tsx,
+            53: self.config.ready_temp_battery,
+        }
+
         self.last_temp_check_time = datetime.now()
 
-        thre = self.config.ready_temp_threshold
-        cur_okay = soc_max < thre and tsx_ntc < thre and battery < thre
+        cur_okay = all(
+            du.read_temp(zone) < thre for zone, thre in thresholds.items()
+        )
         twice_okay = cur_okay and self.last_temp_check
         self.last_temp_check = cur_okay
 
