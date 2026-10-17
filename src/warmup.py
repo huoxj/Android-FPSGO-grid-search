@@ -28,9 +28,13 @@ WARM_CPUS_MASK = "f0"
 BURN_SH = 'while :; do :; done'
 BURN_N = 4  # one spinner per burned core
 
-# All zones must exceed their ready threshold by this much before the
-# burners are killed (hot soak; governs how long the coast-down tail is)
-BURN_OVERSHOOT_M = 2000
+# Burn until every zone reaches its ready threshold. NO extra overshoot:
+# the throttled 4-core burn's steady state sits just above the floors
+# (measured 2026-10-17: battery ~42.7C vs ready 42, tsx ~48 oscillating,
+# z0 84-86C thermally capped), so threshold+2K is unreachable and the
+# burn would time out forever. The ready gate (below thresholds, twice)
+# provides the coast-down margin instead.
+BURN_OVERSHOOT_M = 0
 
 BURN_POLL = 10
 BURN_MAX = 60 * 60
@@ -68,7 +72,11 @@ def stop_burn():
 
 
 def warm_and_ready() -> None:
-    """Burn until all zones are above their ready thresholds + overshoot.
+    """Burn until all zones reach their ready thresholds (no overshoot).
+
+    The burn's steady state is the hot floor itself (see BURN_OVERSHOOT_M);
+    after the burners die, coasting carries every zone down through its
+    threshold and the ready gate passes with the run starting genuinely hot.
 
     Raises TimeoutError if the burn exceeds BURN_MAX (retry loop calls
     this again; the burn resumes from the already-warm state).
