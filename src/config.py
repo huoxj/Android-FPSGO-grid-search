@@ -59,6 +59,16 @@ class Config(BaseSettings):
         description="Single run valid duration"
     )
 
+    repeats: int = Field(
+        default=1, ge=1,
+        description="Runs per grid combo"
+    )
+
+    shuffle_seed: int | None = Field(
+        default=None,
+        description="Seed for run-order shuffle; None = random"
+    )
+
     run_max_attempts: int = Field(
         default=8,
         description="Max attempts for a single run"

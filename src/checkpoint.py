@@ -45,13 +45,13 @@ class CheckpointMgr:
             f.write(meta.model_dump_json(indent=4))
         return meta
 
-    def check_searched(self, grid_params: dict) -> bool:
-        # Check if the given grid_params have already been searched
-        # in existing_runs by comparing grid_params dict
+    def searched_count(self, grid_params: dict) -> int:
+        # Count existing_runs whose grid_params equal the given dict
+        count = 0
         for run in self.existing_runs:
             if run.grid_params == grid_params:
-                return True
-        return False
+                count += 1
+        return count
     
     def existing_runs_num(self) -> int:
         return len(self.existing_runs)
