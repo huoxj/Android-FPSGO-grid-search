@@ -24,6 +24,15 @@ gcc_enable = [1, 2]
 [perfetto]
 config_dir = "./perfetto_configs"
 
+[power]
+enable = true
+warmup = true
+
+# Runs per grid combo; run order = this many independently shuffled
+# grid passes (shuffle_seed: null = random seed, printed at startup)
+#repeats = 1
+#shuffle_seed = null
+
 [sgame]
 package_name = "com.tencent.tmgp.sgame"
 package_name_short = "cent.tmgp.sgame"

@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>grid-search · Pareto 前沿浏览器</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="viz-root">
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark"></span>
+    <span>grid-search <span class="muted">Pareto 前沿浏览器</span></span>
+  </div>
+  <div class="dataset">
+    <span class="muted">数据集目录</span>
+    <code id="ds-root">—</code>
+    <span id="ds-dirs" class="chip-row"></span>
+  </div>
+  <button id="rescan" type="button" class="btn">重新扫描</button>
+</header>
+
+<main id="main">
+  <section class="card chart-card">
+    <div class="controls">
+      <label class="ctl">X 轴
+        <select id="x-axis"></select>
+      </label>
+      <label class="ctl">Y 轴
+        <select id="y-axis"></select>
+      </label>
+      <span class="hint" id="chart-note"></span>
+    </div>
+    <div id="chart"></div>
+    <p class="footnote" id="chart-foot"></p>
+  </section>
+
+  <aside class="card side-card">
+    <div class="side-head">
+      <span>全部 run</span>
+      <span class="muted" id="run-count">—</span>
+    </div>
+    <div class="side-tools">
+      <input id="filter" type="search" placeholder="过滤参数 / 时间，如 blc=150" autocomplete="off">
+    </div>
+    <div class="table-wrap">
+      <table id="runs-table">
+        <thead>
+          <tr>
+            <th class="c-time">时间</th>
+            <th class="c-params">参数</th>
+            <th class="c-num">fps</th>
+            <th class="c-num">功耗</th>
+          </tr>
+        </thead>
+        <tbody id="runs-body"></tbody>
+      </table>
+    </div>
+    <p class="footnote" id="side-foot">点击某行可高亮散点图中对应的 run。</p>
+  </aside>
+</main>
+
+<div id="loading" class="overlay hidden">
+  <div class="spinner"></div>
+  <div class="overlay-text">
+    <strong id="loading-title">正在加载…</strong>
+    <span id="loading-sub">正在分析 trace 指标：首次运行需逐条解析 pftrace，可能耗时数分钟。结果会缓存到 trace 旁边，之后访问是瞬时的。</span>
+  </div>
+</div>
+
+<script src="echarts.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
