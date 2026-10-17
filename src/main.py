@@ -9,6 +9,7 @@ from device_state import DeviceMgr
 from report import report
 from sgame import sgame_run
 from power import cut_for_measurement, restore_charging
+from warmup import warm_and_ready
 
 _NON_RETRYABLE = (FileNotFoundError, KeyError)
 
@@ -74,6 +75,13 @@ def single_run(
     params: dict,
 ):
     config = get_config()
+
+    if config.power.warmup:
+        # Burn the device into the hot band, then coast down through the
+        # ready thresholds; the ready gate below passes right after.
+        # TimeoutError (burn budget exhausted) is retryable: the burn
+        # resumes from the already-warm state.
+        warm_and_ready()
 
     # Waiting for device to ready (hot state: cooled below per-zone thresholds)
     t0 = monotonic()

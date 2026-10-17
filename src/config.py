@@ -33,6 +33,12 @@ class PowerConfig(BaseModel):
         default=True,
         description="Cut charging during runs for battery-side power measurement"
     )
+    # Warm-up burn before the ready wait: cold devices take hours to cool
+    # INTO the hot band; a controlled burn takes tens of minutes.
+    warmup: bool = Field(
+        default=True,
+        description="Burn CPU load before each run so the ready gate passes quickly"
+    )
 
 # =========== Config root ==============
 
