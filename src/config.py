@@ -39,6 +39,17 @@ class PowerConfig(BaseModel):
         default=True,
         description="Burn CPU load before each run so the ready gate passes quickly"
     )
+    # Each run starts from a full battery: charge with the screen off until
+    # the gauge reaches this, KEEP charging through warmup and the ready
+    # wait, and cut only right before the run itself.
+    charge_target: int = Field(
+        default=100, ge=1, le=100,
+        description="Battery capacity (%%) to wait for before each run"
+    )
+    charge_wait_max: int = Field(
+        default=2700,
+        description="Max seconds to wait for the charge target"
+    )
 
 # =========== Config root ==============
 

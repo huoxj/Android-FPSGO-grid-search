@@ -113,14 +113,25 @@ def single_run(
 ):
     config = get_config()
 
+    # 1. Charge first, screen OFF (charging is slowed by a hot, lit screen;
+    #    a full battery also gives every run the same headroom). The charge
+    #    stays ON through warmup and the ready wait - only the RUN is
+    #    measured battery-only.
+    device_mgr.wait_for_charge(
+        config.power.charge_target, config.power.charge_wait_max
+    )
+
+    # 2. Warm-up burn (screen on at full brightness inside warm_and_ready):
+    #    burn the device into the hot band, then coast down through the
+    #    ready thresholds; the ready gate below passes right after.
+    #    TimeoutError (burn budget exhausted) is retryable: the burn
+    #    resumes from the already-warm state. Charging continues meanwhile
+    #    (topping off what the burn draws).
     if config.power.warmup:
-        # Burn the device into the hot band, then coast down through the
-        # ready thresholds; the ready gate below passes right after.
-        # TimeoutError (burn budget exhausted) is retryable: the burn
-        # resumes from the already-warm state.
         warm_and_ready()
 
-    # Waiting for device to ready (hot state: cooled below per-zone thresholds)
+    # 3. Ready gate: screen off, all zones below thresholds, twice.
+    #    Charging still on.
     t0 = monotonic()
     while not device_mgr.ready_for_start_run():
         print(
@@ -130,10 +141,9 @@ def single_run(
         sleep(5)
     print("\n")
 
+    # 4. The only battery-only window: cut the charge path right before
+    #    the run. Raises on failure -> retryable.
     if config.power.enable:
-        # Blocks until the charge path is cut and verified (PE5 may stall
-        # this for minutes after a full charge). Raises on failure, which
-        # the retry loop in main() treats as a retryable run failure.
         cut_for_measurement()
 
     try:

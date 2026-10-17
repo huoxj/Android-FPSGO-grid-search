@@ -1,6 +1,7 @@
 from utils.adb import adb_shell
 
 _THERMAL_ZONE_PATH = "/sys/class/thermal/thermal_zone{}/temp"
+_BATTERY_CAPACITY = "/sys/class/power_supply/battery/capacity"
 
 def toggle_screen(on: bool = True):
     event = "KEYCODE_WAKEUP" if on else "KEYCODE_SLEEP"
@@ -23,6 +24,10 @@ def read_temp(thermal_zone: int) -> int:
     return int(
         adb_shell(f"cat {_THERMAL_ZONE_PATH.format(thermal_zone)}")
     )
+
+def read_capacity() -> int:
+    # Battery gauge percent
+    return int(adb_shell(f"cat {_BATTERY_CAPACITY}"))
 
 def get_tgid(package_name: str) -> str:
     tgid = adb_shell(f"pidof {package_name}").strip()

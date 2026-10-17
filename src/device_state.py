@@ -1,4 +1,5 @@
 from datetime import datetime
+from time import monotonic, sleep
 
 from config import get_config
 import utils.device_utils as du
@@ -32,6 +33,28 @@ class DeviceMgr:
     def read_temps(self) -> dict[str, int]:
         # Same zones as _temperature_okay; for run metadata
         return {f"zone{z}": du.read_temp(z) for z in (0, 44, 53)}
+
+    def wait_for_charge(self, target: int, max_secs: int) -> None:
+        """Block until the battery gauge reaches target (charger plugged).
+
+        Charging is NOT cut here - the cut happens only right before the
+        run (power.cut_for_measurement). Raises TimeoutError via the
+        retry loop otherwise.
+        """
+        t0 = monotonic()
+        while True:
+            cap = du.read_capacity()
+            if cap >= target:
+                print(f"Battery at {cap}% (target {target})")
+                return
+            if monotonic() - t0 > max_secs:
+                raise TimeoutError(
+                    f"Battery {cap}% did not reach {target} "
+                    f"within {max_secs}s"
+                )
+            print(f"charging {cap}% -> {target}% "
+                  f"elapsed {monotonic() - t0:.0f}s")
+            sleep(30)
 
     def _battery_okay(self) -> bool:
         """
