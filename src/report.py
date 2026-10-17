@@ -156,6 +156,91 @@ def top5(df: pd.DataFrame, n: int = 5) -> str:
     return _mtable(top) + "\n\nparams\n" + _ptable(top)
 
 
+# ── pareto ──────────────────────────────────────────────────────────────
+
+def _combo_stats(df: pd.DataFrame) -> pd.DataFrame:
+    """One row per combo (params set), means over its runs.
+
+    Power means skip NaN, so a combo with no charge-cut run gets NaN;
+    disch_ok flags combos where every run carried a discharge_ratio.
+    """
+    gb = df.groupby(df["params"].map(lambda d: json.dumps(d, sort_keys=True)))
+    out = pd.DataFrame({
+        "params": gb.first()["params"].to_numpy(),
+        "n": gb.size().to_numpy(),
+        "fps_avg": gb["fps_avg"].mean().to_numpy(),
+        "fps_std": gb["fps_std"].mean().to_numpy(),
+        "jank": gb["jank"].mean().to_numpy(),
+        "jank_l": gb["severe"].mean().to_numpy(),
+    })
+    has_disch = "discharge_ratio" in df.columns
+    for col in ("power_avg_mw", "power_median_mw", "discharge_ratio"):
+        out[col] = gb[col].mean().to_numpy() if col in df.columns else np.nan
+    out["disch_ok"] = (
+        gb["discharge_ratio"].count().to_numpy() == out["n"].to_numpy()
+        if has_disch else False
+    )
+    return out
+
+
+def pareto_front(combo_stats: pd.DataFrame) -> pd.DataFrame:
+    """Front of the fps-max / power-min trade-off, sorted by power asc.
+
+    combo_stats: one row per combo (see _combo_stats). Combos without
+    power data (NaN) cannot be ranked and are dropped.
+    """
+    d = combo_stats[combo_stats["power_avg_mw"].notna()].copy()
+    if d.empty:
+        return d.reset_index(drop=True)
+    fps = d["fps_avg"].to_numpy(dtype=float)
+    pw = d["power_avg_mw"].to_numpy(dtype=float)
+    # row i is dominated when some j has fps>=, power<=, one of them strict
+    dominated = (
+        (fps[None, :] >= fps[:, None]) & (pw[None, :] <= pw[:, None]) &
+        ((fps[None, :] > fps[:, None]) | (pw[None, :] < pw[:, None]))
+    ).any(axis=1)
+    return d[~dominated].sort_values("power_avg_mw").reset_index(drop=True)
+
+
+def _pareto_frames(front: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """(metrics, params) display frames; row i of both is front row i."""
+    m = pd.DataFrame({
+        "#": range(1, len(front) + 1),
+        "n": front["n"].astype(int),
+        "fps_avg": front["fps_avg"].round(2),
+        "fps_std": front["fps_std"].round(2),
+        "jank": front["jank"].round(1),
+        "jank_l": front["jank_l"].round(1),
+        "P_avg_mW": front["power_avg_mw"].round(0),
+        "P_med_mW": front["power_median_mw"].round(0),
+    })
+    disch = (front["discharge_ratio"] * 100).round(1)
+    m["disch%"] = disch.where(front["disch_ok"].to_numpy(), "-")
+    m = m.fillna({"P_med_mW": "-"})
+
+    p = pd.json_normalize(front["params"].tolist())
+    p = p.rename(columns=lambda k: _abbr(k))
+    p.insert(0, "#", range(1, len(p) + 1))
+    return m, p
+
+
+def _pareto_lines(df: pd.DataFrame) -> list[str]:
+    """Short per-front-combo lines for the console printout."""
+    if "power_avg_mw" not in df.columns:
+        return ["power data unavailable"]
+    front = pareto_front(_combo_stats(df))
+    if front.empty:
+        return ["no combo with power data"]
+    lines = []
+    for i, r in enumerate(front.itertuples(), 1):
+        ps = " ".join(f"{_abbr(k)}={v}" for k, v in sorted(r.params.items()))
+        lines.append(
+            f"#{i}  P_avg={r.power_avg_mw:.0f}mW  fps={r.fps_avg:.2f}  "
+            f"jank={r.jank:.1f}  {ps}"
+        )
+    return lines
+
+
 # ── 报告 ────────────────────────────────────────────────────────────────
 
 def full_report(df: pd.DataFrame, output_dir: str) -> str:
@@ -178,7 +263,10 @@ def full_report(df: pd.DataFrame, output_dir: str) -> str:
     if len(gb) == len(df):
         L.append(f"每个 param set 只跑 1 次 ({len(gb)} sets), 同 runs")
     else:
-        first = gb.first().reset_index()
+        # drop=True: the group key is named "params" too, reset_index()
+        # would collide with the data column (pandas 3). _ptable only
+        # reads the params column anyway.
+        first = gb.first().reset_index(drop=True)
         agg = pd.DataFrame({
             "#": range(1, len(gb) + 1),
             "n": [len(sub) for _, sub in gb],
@@ -216,10 +304,34 @@ def full_report(df: pd.DataFrame, output_dir: str) -> str:
         L.append(f"  {_abbr(k)}")
         L.append(
             pd.DataFrame(rows, columns=[
-                "value", "n", "fps_avg", "d_fps", "jank_s", "jank", "d_jank", 
+                "value", "n", "fps_avg", "d_fps", "jank_s", "jank", "d_jank",
                 "jank_l"
             ]).to_string(index=False)
         )
+
+    L += ["", "## pareto"]
+    if "power_avg_mw" not in df.columns:
+        L.append("power data unavailable")
+    else:
+        stats = _combo_stats(df)
+        front = pareto_front(stats)
+        n_nopower = int(stats["power_avg_mw"].isna().sum())
+        if n_nopower:
+            L.append(
+                f"excluded {n_nopower} combo(s) without power data "
+                "(no charge-cut run in the set)"
+            )
+        if front.empty:
+            L.append("no combo with power data")
+        else:
+            m, p = _pareto_frames(front)
+            L += [
+                "pareto metrics  (power asc)",
+                m.to_string(index=False),
+                "",
+                "pareto params",
+                p.to_string(index=False),
+            ]
     return "\n".join(L) + "\n"
 
 
@@ -229,6 +341,9 @@ def report(output_dir: str, top_n: int = 5) -> Path:
         raise RuntimeError(f"no analyzable trace in {output_dir}")
     print(f"\n=== top{top_n} by fps_avg ===")
     print(top5(df, top_n))
+    print("\n=== pareto (power asc) ===")
+    for line in _pareto_lines(df):
+        print(line)
     path = Path(output_dir) / f"report_{datetime.now():%Y%m%d_%H%M%S}.txt"
     path.write_text(full_report(df, output_dir))
     print(f"\nreport: {path}")
