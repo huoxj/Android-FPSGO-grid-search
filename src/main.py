@@ -134,7 +134,7 @@ def single_run(
         # Blocks until the charge path is cut and verified (PE5 may stall
         # this for minutes after a full charge). Raises on failure, which
         # the retry loop in main() treats as a retryable run failure.
-        power.cut_for_measurement()
+        cut_for_measurement()
 
     try:
         start_temps = device_mgr.read_temps()
@@ -159,7 +159,7 @@ def single_run(
         if config.power.enable:
             # Restore even when the run failed; a failure to restore raises
             # so the retry loop's cut_for_measurement sees a known state.
-            power.restore_charging()
+            restore_charging()
         # Post-run cleanup
         device_mgr.finish_run_cleanup()
 
