@@ -59,6 +59,13 @@ class PowerConfig(BaseModel):
         default=2700,
         description="Max seconds to wait for the charge target"
     )
+    # Warm-up = play replay card 0 for this long (game = CPU+GPU+screen
+    # heater; its equilibrium sits ~1-2K above the ready thresholds, while
+    # a throttled CPU-only burn equilibrates BELOW them - measured).
+    warmup_secs: int = Field(
+        default=600, ge=0,
+        description="Seconds of replay playback for warm-up (0 = skip)"
+    )
 
 # =========== Config root ==============
 
