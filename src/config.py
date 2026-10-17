@@ -23,6 +23,15 @@ class SgameConfig(BaseModel):
 
     resource_dir: str = "./resources/sgame"
 
+    # Replay picker card grid (landscape frame, 2720x1224), measured
+    # on-device: card0 = first card center, 6 per row, 2 visible rows
+    # (repeat <= 12 without scrolling)
+    replay_grid: dict = Field(
+        default_factory=lambda: {
+            "card0": [560, 487], "dx": 346, "dy": 500, "cols": 6,
+        },
+    )
+
 # =========== Power measurement ==============
 
 class PowerConfig(BaseModel):
@@ -63,6 +72,19 @@ class Config(BaseSettings):
     grid: dict[str, list] = Field(
         default_factory=dict,
         description="FPSGO param axes for grid search. Key 'a,b' = joint axis"
+    )
+
+    # Per-run replay card index. 'group' = one replay per repeat group
+    # (group g plays card g: each combo is validated across scenarios
+    # instead of repeating one replay). 'fixed' always uses replay_index.
+    # Card indices 0..11 (2 rows x 6 visible without scrolling).
+    replay_index_mode: str = Field(
+        default="group",
+        description="'group' (per repeat group) or 'fixed'"
+    )
+    replay_index: int = Field(
+        default=0,
+        description="Explicit replay card index when replay_index_mode='fixed'"
     )
 
     run_duration: int = Field(

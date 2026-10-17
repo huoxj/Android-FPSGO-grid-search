@@ -77,7 +77,8 @@ def main():
         while True:
             attempt += 1
             try:
-                single_run(device_mgr, ckpt_manager, params)
+                replay_idx = resolve_replay_index(g)
+                single_run(device_mgr, ckpt_manager, params, replay_idx)
                 completed_runs += 1
                 break
             except _NON_RETRYABLE:
@@ -106,10 +107,22 @@ def main():
 
     input("\n\nSearch finished, press Enter to exit...")
 
+def resolve_replay_index(group: int) -> int:
+    """Which replay card this run plays.
+
+    'group' mode: group g plays card g - each combo is validated across
+    different replays (scenario robustness) instead of repeating one.
+    'fixed' mode: always the configured index.
+    """
+    if get_config().replay_index_mode == "fixed":
+        return get_config().replay_index
+    return group
+
 def single_run(
     device_mgr: DeviceMgr,
     ckpt_manager: CheckpointMgr,
     params: dict,
+    replay_index: int,
 ):
     config = get_config()
 
@@ -154,7 +167,7 @@ def single_run(
         device_mgr.start_run_init(config.sgame.package_name)
 
         # Game specific run process
-        trace_tmp_path = sgame_run(params)
+        trace_tmp_path = sgame_run(params, replay_index)
 
         # Perfetto stopped. Save run metadata
         trace_path = config.output_dir + "/" + trace_tmp_path.name
@@ -164,6 +177,7 @@ def single_run(
             trace_path= trace_path,
             run_start_time=run_start_time,
             start_temps=start_temps,
+            replay_index=replay_index,
         )
     finally:
         if config.power.enable:

@@ -12,13 +12,13 @@ from utils.fpsgo import read_fpsgo_fps, apply_params
 from utils.adb import adb_follow, adb_shell
 from utils import misc, ui
 
-def sgame_run(params: dict) -> Path:
+def sgame_run(params: dict, replay_index: int) -> Path:
     conf = get_config()
     run_dur = conf.run_duration
     _prepare_resources()
 
-    # Cleanly enter replay
-    _reenter_replay()
+    # Cleanly enter replay (replay_index picks the card in the picker grid)
+    _reenter_replay(replay_index)
     # Start perfetto recording immediately
     proc, trace_tmp_path = start_perfetto_tracing(
         name = "sgame",
@@ -77,7 +77,7 @@ def sgame_run(params: dict) -> Path:
     return trace_tmp_path
 
 
-def _reenter_replay():
+def _reenter_replay(replay_index: int):
     conf = get_config()
 
     # 1. Restart game and make sure game is on
@@ -120,7 +120,7 @@ def _reenter_replay():
     sleep(2)
     _tap("local_tab")
     sleep(2)
-    _tap("replay_card")
+    _tap_replay_card(conf.replay_index)
     sleep(2)
     _tap("confirm")
 
@@ -189,9 +189,25 @@ _fixed_centers = {
     "start":       (1354, 955),
     "replay":      (1979, 68),
     "local_tab":   (258, 836),
-    "replay_card": (560, 487),
     "confirm":     (1570, 866),
 }
+
+def _tap_replay_card(index: int):
+    # Replay picker is a 2D grid of cards. Measured on-device (2026-10-17):
+    # first card center (560, 487), dx=346, dy=500, 6 per row, 2 visible
+    # rows without scrolling -> supports repeat <= 12.
+    conf = get_config()
+    g = conf.sgame.replay_grid
+    row, col = divmod(index, g["cols"])
+    x = g["card0"][0] + col * g["dx"]
+    y = g["card0"][1] + row * g["dy"]
+    if row >= 2:
+        raise ValueError(
+            f"replay index {index} needs row {row}; only 2 rows visible "
+            "without scrolling (repeat <= 12)"
+        )
+    print(f"tapping replay card {index} at ({x}, {y})")
+    ui.tap(x, y)
 
 def _prepare_resources():
     # Load all template images into memory
