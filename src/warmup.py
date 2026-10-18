@@ -27,6 +27,16 @@ from sgame import _prepare_resources, _reenter_replay, _exit_game
 WARMUP_POLL = 20
 
 
+# Play-session limiter ("强制休息" / anti-addiction lockouts) blocks the
+# game for minutes. Retrying on the old 15s*2^n ladder burns attempts
+# without giving the lockout time to expire - wait for it instead.
+# Keyed exceptions would need template matching we do not have, so ANY
+# entry failure inside warmup is treated as a possible lockout.
+LOCKOUT_COOLDOWN = 15 * 60 + 60  # 15-min lock + margin
+
+class _EntryFailed(Exception):
+    pass
+
 def warm_and_ready() -> None:
     """Heat the device to its plateau by playing replay card 0."""
     conf = get_config()
@@ -43,7 +53,17 @@ def warm_and_ready() -> None:
         # as real runs means identical, already-proven UI automation.
         # FPSGO params stay at game defaults (per-pid state died with the
         # previous run's force-stop) - we only want heat here.
-        _reenter_replay(0)
+        while True:
+            try:
+                _reenter_replay(0)
+                break
+            except Exception as e:
+                # Entry failed (forced-rest lockout, ad, misc popup):
+                # a lockout is minutes-scale, retrying faster is pointless.
+                # Wait out the longest known lockout, then try again.
+                print(f"warmup: entry failed ({e}); "
+                      f"cooling down {LOCKOUT_COOLDOWN}s for lockout")
+                sleep(LOCKOUT_COOLDOWN)
         thresholds = {
             0: conf.ready_temp_soc_max,
             44: conf.ready_temp_tsx,
