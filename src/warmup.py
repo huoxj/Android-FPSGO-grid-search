@@ -22,7 +22,7 @@ from time import monotonic, sleep
 
 from config import get_config
 from utils import device_utils as du
-from sgame import _prepare_resources, _reenter_replay, _exit_game
+from sgame import _prepare_resources, _reenter_replay, _exit_game, _sync_timeline_0s
 
 WARMUP_POLL = 20
 
@@ -56,6 +56,11 @@ def warm_and_ready() -> None:
         while True:
             try:
                 _reenter_replay(0)
+                # Lobby/lockout/event popups can all fake "entered": the
+                # battle actually running is only proven by the fight-start
+                # log needle (same check the measured runs rely on). A
+                # frozen replay never emits it -> cooldown + retry.
+                _sync_timeline_0s()
                 break
             except Exception as e:
                 # Entry failed (forced-rest lockout, ad, misc popup):
