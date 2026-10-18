@@ -8,20 +8,23 @@ governor clamps the burn cores as the device heats). The game itself
 (CPU+GPU+screen at 5-6W) reaches the plateau in minutes, is exactly the
 workload's thermal profile, and needs no synthetic-load machinery.
 
-Fixed warmup duration rather than "until thresholds exceeded": the game's
-tsx/battery equilibria only barely clear the thresholds, so a
-threshold-based exit would be fragile in the same way. The ready gate
-after the coast does the fine positioning.
+Exit rule: stop as soon as every zone sits above its ready threshold
+(i.e. the device has reached the plateau the thresholds were calibrated
+from), bounded by warmup_secs as a safety cap. Between consecutive runs
+the device is still hot, so this usually exits in ~5 min instead of
+burning the full cap.
 
 Failure mode: if the host dies mid-warmup the game keeps running until
 its replay ends and idles in the menu - no device-side daemons involved,
 but also no auto-cleanup; the next host run force-stops the game anyway.
 """
-from time import sleep
+from time import monotonic, sleep
 
 from config import get_config
 from utils import device_utils as du
 from sgame import _prepare_resources, _reenter_replay, _exit_game
+
+WARMUP_POLL = 20
 
 
 def warm_and_ready() -> None:
@@ -41,7 +44,38 @@ def warm_and_ready() -> None:
         # FPSGO params stay at game defaults (per-pid state died with the
         # previous run's force-stop) - we only want heat here.
         _reenter_replay(0)
-        print(f"warmup: playing replay 0 for {conf.power.warmup_secs}s")
-        sleep(conf.power.warmup_secs)
+        thresholds = {
+            0: conf.ready_temp_soc_max,
+            44: conf.ready_temp_tsx,
+            53: conf.ready_temp_battery,
+        }
+        t0 = monotonic()
+        while True:
+            temps = {z: du.read_temp(z) for z in thresholds}
+            if all(temps[z] >= t for z, t in thresholds.items()):
+                print(
+                    "warmup: plateau reached after "
+                    f"{monotonic() - t0:.0f}s "
+                    + " ".join(f"z{z}={temps[z] / 1000:.1f}C"
+                               for z in sorted(temps))
+                )
+                return
+            if monotonic() - t0 >= conf.power.warmup_secs:
+                print(
+                    f"warmup: cap {conf.power.warmup_secs}s hit, "
+                    "releasing to the ready gate "
+                    + " ".join(f"z{z}={temps[z] / 1000:.1f}C"
+                               for z in sorted(temps))
+                )
+                return
+            print(
+                "warmup " +
+                " ".join(
+                    f"z{z}={temps[z] / 1000:.1f}/{t / 1000:.0f}C"
+                    for z, t in sorted(thresholds.items())
+                ) +
+                f" elapsed {monotonic() - t0:.0f}s"
+            )
+            sleep(WARMUP_POLL)
     finally:
         _exit_game()
