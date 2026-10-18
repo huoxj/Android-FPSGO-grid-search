@@ -120,7 +120,10 @@ def _reenter_replay(replay_index: int):
     sleep(2)
     _tap("local_tab")
     sleep(2)
-    _tap_replay_card(conf.replay_index)
+    # The index comes from the CALLER (resolved per run), never from config:
+    # this line once read conf.replay_index instead, silently pinning every
+    # group to card 0 while the meta recorded the intended index.
+    _tap_replay_card(replay_index)
     sleep(2)
     _tap("confirm")
 

@@ -136,9 +136,10 @@ def resolve_replay_index(group: int) -> int:
     different replays (scenario robustness) instead of repeating one.
     'fixed' mode: always the configured index.
     """
-    if get_config().replay_index_mode == "fixed":
-        return get_config().replay_index
-    return group
+    idx = (get_config().replay_index
+           if get_config().replay_index_mode == "fixed" else group)
+    print(f"-> replay card {idx} (mode={get_config().replay_index_mode})")
+    return idx
 
 def single_run(
     device_mgr: DeviceMgr,
