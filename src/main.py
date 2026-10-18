@@ -11,8 +11,24 @@ from report import report
 from sgame import sgame_run
 from power import cut_for_measurement, restore_charging
 from warmup import warm_and_ready
+from utils.adb import AdbOffline, adb_shell
 
 _NON_RETRYABLE = (FileNotFoundError, KeyError)
+
+def _wait_for_device():
+    """Block until adb answers again. A disconnected device is not a run
+    failure - 8 fast retries used to burn every attempt and skip the rest
+    of the batch; instead we wait (nobody is watching at 4am anyway)."""
+    t0 = monotonic()
+    while True:
+        try:
+            adb_shell("echo ok")
+            print(f"\nDevice back online after {monotonic() - t0:.0f}s")
+            return
+        except AdbOffline:
+            print(f"\rDevice offline, waiting... "
+                  f"{monotonic() - t0:.0f}s", end="", flush=True)
+            sleep(15)
 
 def build_run_queue(grid: list[dict], repeats: int, seed: int) -> list[dict]:
     # Run order = `repeats` groups, each group being the whole grid
@@ -83,6 +99,12 @@ def main():
                 break
             except _NON_RETRYABLE:
                 raise
+            except AdbOffline:
+                # Device gone (USB drop / adbd death): not an attempt,
+                # just wait for it to come back and retry this run.
+                print(f"\nDevice offline during run: waiting instead of retrying")
+                _wait_for_device()
+                continue
             except Exception as e:
                 # Backoff retry
                 if attempt >= config.run_max_attempts:

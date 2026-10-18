@@ -1,16 +1,31 @@
 from contextlib import contextmanager
 import subprocess
 
+
+class AdbOffline(Exception):
+    """adb returned nothing - device disconnected / adbd dead."""
+
+
 def adb(cmd: str) -> str:
     try:
         result = subprocess.run(
             ["adb", *cmd.split()],
             capture_output=True, text=True, timeout=10
-        ) 
-    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
-        return f"Error executing adb command: {e}"
-    
-    return result.stdout.strip()
+        )
+    except subprocess.TimeoutExpired as e:
+        # adbd wedged: treat like a disconnect (caller retries later)
+        raise AdbOffline(f"adb timeout: {cmd}") from e
+    except FileNotFoundError as e:
+        raise AdbOffline("adb binary not found in PATH") from e
+
+    out = result.stdout.strip()
+    if not out and result.returncode != 0:
+        # `adb devices` with no device, dead adbd, unplugged cable...
+        raise AdbOffline(
+            f"adb rc={result.returncode} with empty output: {cmd} "
+            f"(stderr: {result.stderr.strip()[:120]})"
+        )
+    return out
 
 def adb_shell(cmd: str) -> str:
     return adb(f"shell {cmd}")
@@ -40,4 +55,3 @@ def adb_follow(
             p.stdout.close()
         if p.stderr:
             p.stderr.close()
-
