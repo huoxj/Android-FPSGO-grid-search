@@ -136,33 +136,33 @@ main.refreshing { opacity: 0.5; transition: opacity 120ms ease; }
   flex-direction: column;
 }
 
-.chart-card { padding: 10px 12px 6px; }
+.chart-card { padding: 16px 20px 12px; }
 
 .controls {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 18px;
+  gap: 22px;
   flex-wrap: wrap;
-  padding-bottom: 8px;
+  padding-bottom: 12px;
 }
 
 .ctl {
   display: flex;
   align-items: center;
-  gap: 7px;
-  font-size: 13px;
+  gap: 8px;
+  font-size: 14px;
   color: var(--text-secondary);
 }
 
 select, input[type="search"] {
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   color: var(--text-primary);
   background: var(--surface-1);
   border: 1px solid var(--axis);
   border-radius: 7px;
-  padding: 5px 9px;
+  padding: 6px 11px;
 }
 
 select:focus-visible, input:focus-visible, .btn:focus-visible {
@@ -170,7 +170,7 @@ select:focus-visible, input:focus-visible, .btn:focus-visible {
   outline-offset: 1px;
 }
 
-.hint { font-size: 12.5px; color: var(--text-muted); }
+.hint { font-size: 13px; color: var(--text-muted); }
 
 #chart {
   flex: 1 1 auto;
@@ -180,8 +180,8 @@ select:focus-visible, input:focus-visible, .btn:focus-visible {
 
 .footnote {
   flex: 0 0 auto;
-  margin: 4px 2px 2px;
-  font-size: 12px;
+  margin: 8px 4px 4px;
+  font-size: 13px;
   color: var(--text-muted);
 }
 

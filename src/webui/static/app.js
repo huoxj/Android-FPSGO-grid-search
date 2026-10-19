@@ -9,12 +9,14 @@
 
 // ── metric catalogue ────────────────────────────────────────────────────
 // dir: which end of the axis is "good" — drives the dominance test.
+// Chinese-only labels (deliverable audience); min-metrics get an inverted
+// axis so "up/right = better" always holds visually.
 const METRICS = {
-  fps_avg:      { label: "平均帧率 (fps_avg)",       short: "平均帧率",     dir: "max", digits: 2 },
-  jank_rate:    { label: "掉帧率/s (jank/s)",        short: "掉帧率/s",     dir: "min", digits: 2 },
-  jank_l_rate:  { label: "大掉帧率/s (jank_l/s)",    short: "大掉帧率/s",   dir: "min", digits: 3 },
-  fps_std:      { label: "帧率std (fps_std)",        short: "帧率std",      dir: "min", digits: 2 },
-  power_avg_mw: { label: "平均功耗 (power_avg_mw)",  short: "平均功耗",     dir: "min", digits: 0 },
+  fps_avg:      { label: "平均帧率",     short: "平均帧率",   dir: "max", digits: 2 },
+  jank_rate:    { label: "掉帧率 /s",    short: "掉帧率 /s",  dir: "min", digits: 2 },
+  jank_l_rate:  { label: "大掉帧率 /s",  short: "大掉帧率 /s", dir: "min", digits: 3 },
+  fps_std:      { label: "帧率波动",     short: "帧率波动",   dir: "min", digits: 2 },
+  power_avg_mw: { label: "平均功耗 (mW)", short: "平均功耗",   dir: "min", digits: 0 },
 };
 const AXES = ["fps_avg", "jank_rate", "jank_l_rate", "fps_std", "power_avg_mw"];
 
@@ -40,6 +42,7 @@ const state = {
   serverFront: new Set(),   // combo keys on the server-side (fps vs power) front
   x: "fps_avg",
   y: "power_avg_mw",
+  group: "all",             // "all" | "0" | "1" | "2" (replay group filter)
   selected: -1,             // index into state.runs
   loaded: false,
 };
@@ -97,9 +100,21 @@ function axisFormatter(key) {
 
 // ── combos + Pareto front (client-side, axis dependent) ─────────────────
 
-function buildCombos() {
+// Replay group of a run: meta.replay_index (null = the pre-grouping era,
+// which played card 0 by definition) -> "0" / "1" / "2" ...
+function groupOf(run) {
+  return String(run.replay_index ?? 0);
+}
+
+// Runs visible under the current group filter
+function visibleRuns() {
+  if (state.group === "all") return state.runs;
+  return state.runs.filter((r) => groupOf(r) === state.group);
+}
+
+function buildCombos(runs) {
   const byKey = new Map();
-  for (const run of state.runs) {
+  for (const run of runs) {
     const k = comboKey(run.params);
     let c = byKey.get(k);
     if (!c) {
@@ -215,16 +230,19 @@ function baseOption() {
   return {
     animationDuration: 320,
     animationDurationUpdate: 220,
-    grid: { left: 8, right: 20, top: 34, bottom: 8, containLabel: true },
+    // generous breathing room around the plot
+    grid: { left: 46, right: 56, top: 52, bottom: 24, containLabel: true },
     legend: {
       top: 0,
       left: 0,
-      itemGap: 18,
+      itemGap: 20,
       icon: "circle",
+      itemWidth: 12,
+      itemHeight: 12,
       // only the two encodings that carry identity; the hover-only series
       // (ring / spread dots / selection) stay out of the legend
       data: ["全部 run", "前沿组合均值", "前沿包络线"],
-      textStyle: { color: CSS.ink2, fontSize: 12 },
+      textStyle: { color: CSS.ink2, fontSize: 13 },
       inactiveColor: "#c3c2b7",
     },
     tooltip: {
@@ -233,32 +251,35 @@ function baseOption() {
       backgroundColor: CSS.surface,
       borderColor: "rgba(11,11,11,0.10)",
       borderWidth: 1,
-      padding: [9, 11],
-      textStyle: { color: CSS.ink, fontSize: 12.5 },
+      padding: [11, 14],
+      textStyle: { color: CSS.ink, fontSize: 13.5 },
       extraCssText: "box-shadow:0 6px 20px rgba(11,11,11,0.12);border-radius:8px;",
     },
   };
 }
 
 function axisCommon(key) {
+  const m = METRICS[key];
   return {
     type: "value",
-    name: METRICS[key].label,
+    name: m.label,
     nameLocation: "middle",
-    nameGap: 30,
-    nameTextStyle: { color: CSS.ink2, fontSize: 12 },
+    nameGap: 34,
+    nameTextStyle: { color: CSS.ink2, fontSize: 14 },
     scale: true,
+    inverse: m.dir === "min",  // up/right = better for every metric
     axisLine: { show: true, lineStyle: { color: CSS.axis, width: 1 } },
     axisTick: { show: false },
-    splitLine: { lineStyle: { color: CSS.grid, width: 1, type: "solid" } },
-    axisLabel: { color: CSS.muted, fontSize: 11.5, formatter: axisFormatter(key) },
+    splitLine: { show: false },  // no gridlines: minimal canvas
+    axisLabel: { color: CSS.muted, fontSize: 12.5, formatter: axisFormatter(key) },
   };
 }
 
 function render() {
   const xk = state.x;
   const yk = state.y;
-  combos = buildCombos();
+  const shown = visibleRuns();
+  combos = buildCombos(shown);
   const front = paretoCombos(combos, xk, yk)
     .sort((a, b) => a.mean[xk] - b.mean[xk]);
 
@@ -266,6 +287,10 @@ function render() {
   const runPts = [];
   let hidden = 0;
   state.runs.forEach((r, i) => {
+    if (!shown.includes(r)) {
+      plotted.push(-1);
+      return;
+    }
     const x = metricValue(r, xk);
     const y = metricValue(r, yk);
     if (x === null || y === null) {
@@ -405,7 +430,7 @@ function render() {
   hideSpread();
 
   $("chart-note").textContent =
-    `run ${state.runs.length} 个 · 组合 ${combos.length} 个 · 前沿组合 ${front.length} 个` +
+    `run ${shown.length} 个 · 组合 ${combos.length} 个 · 前沿组合 ${front.length} 个` +
     (hidden ? ` · 当前坐标轴缺少数值隐藏 ${hidden} 个` : "");
   $("chart-foot").textContent =
     "每个点是一个 run；橙点为按相同参数聚合后的组合均值，连线为 Pareto 包络线。" +
@@ -511,6 +536,7 @@ function renderTable() {
   const rows = [];
   let shown = 0;
   state.runs.forEach((run, i) => {
+    if (!visibleRuns().includes(run)) return;  // group filter
     const params = paramSummary(run.params);
     const hay = (params + " " + run.time + " " + run.trace).toLowerCase();
     if (q && !hay.includes(q)) return;
@@ -586,6 +612,15 @@ async function load({ initial = false } = {}) {
     state.loaded = true;
     state.selected = -1;
 
+    // Group selector: distinct replay groups present in the data
+    const groups = [...new Set(state.runs.map(groupOf))].sort();
+    const sel = $("group-sel");
+    sel.innerHTML =
+      `<option value="all">全部运行组</option>` +
+      groups.map((g) => `<option value="${g}">运行组 ${g}</option>`).join("");
+    if (!groups.includes(state.group)) state.group = "all";
+    sel.value = state.group;
+
     $("loading").classList.add("hidden");
     $("side-foot").textContent =
       "点击某行可高亮散点图中对应的 run。" +
@@ -619,6 +654,12 @@ function initControls() {
   });
   $("y-axis").addEventListener("change", (e) => {
     state.y = e.target.value;
+    render();
+    renderTable();
+  });
+  $("group-sel").addEventListener("change", (e) => {
+    state.group = e.target.value;
+    state.selected = -1;
     render();
     renderTable();
   });

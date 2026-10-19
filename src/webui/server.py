@@ -138,6 +138,7 @@ def load_runs(output_dir: str) -> tuple[list[dict], dict, int]:
             "time_iso": m.time.isoformat(),
             "trace": str(trace),
             "params": m.grid_params,
+            "replay_index": m.replay_index,  # None = pre-grouping era (= card 0)
             "n_frames": met.get("n_frames"),
             "dur_s": met.get("dur_s"),
             "fps_avg": met.get("fps_avg"),

@@ -7,7 +7,6 @@ from config import get_config
 from fpsgo_params_grid import get_grid_samples as get_grid
 from checkpoint import CheckpointMgr
 from device_state import DeviceMgr
-from report import report
 from sgame import sgame_run
 from power import cut_for_measurement, restore_charging
 from warmup import warm_and_ready
@@ -124,10 +123,22 @@ def main():
           f"{completed_runs}/{skipped_runs}/{len(run_queue)}"
     )
 
-    print("Generating report... ")
-    report(config.output_dir)
+    # Launch the result UI and block on it, so the console stays alive
+    # until the operator closes the browser tab / Ctrl-C.
+    import subprocess
+    import sys
+    from pathlib import Path
 
-    input("\n\nSearch finished, press Enter to exit...")
+    ui_cmd = [
+        sys.executable, "-m", "src.webui",
+        "--output", str(Path(config.output_dir).resolve()),
+        "--port", "8787",
+    ]
+    print("Starting webui:", " ".join(ui_cmd))
+    try:
+        subprocess.run(ui_cmd, check=True)
+    except KeyboardInterrupt:
+        pass
 
 def resolve_replay_index(group: int) -> int:
     """Which replay card this run plays.
