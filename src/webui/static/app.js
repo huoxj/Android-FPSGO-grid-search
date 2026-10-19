@@ -383,7 +383,8 @@ function render() {
         id: "envelope",
         name: "前沿包络线",
         type: "line",
-        step: "end",
+        // smooth dense samples from monotoneCurve; step would re-apply
+        // the staircase we removed
         symbol: "none",
         silent: true,
         lineStyle: { color: CSS.front, width: 2, opacity: 0.75 },
