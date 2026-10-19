@@ -132,7 +132,7 @@ def main():
     ui_cmd = [
         sys.executable, "-m", "src.webui",
         "--output", str(Path(config.output_dir).resolve()),
-        "--port", "8787",
+        "--port", str(config.power.webui_port),
     ]
     print("Starting webui:", " ".join(ui_cmd))
     try:

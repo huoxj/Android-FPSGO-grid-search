@@ -42,7 +42,7 @@ const state = {
   serverFront: new Set(),   // combo keys on the server-side (fps vs power) front
   x: "fps_avg",
   y: "power_avg_mw",
-  group: "all",             // "all" | "0" | "1" | "2" (replay group filter)
+  group: "0",               // "all" | "0" | "1" | "2" (replay group filter)
   selected: -1,             // index into state.runs
   loaded: false,
 };
@@ -96,6 +96,56 @@ function esc(s) {
 function axisFormatter(key) {
   const m = METRICS[key];
   return (v) => fmtNum(v, m.digits);
+}
+
+// Monotone cubic interpolation (Fritsch-Carlson): the curve passes exactly
+// through every (xs, ys) point and never overshoots between them — the
+// right shape for a Pareto front, where a polynomial fit would invent
+// phantom "better-than-front" regions between points. Returns dense
+// [x, y] pairs for a line series. Handles the 2-point case as a segment.
+function monotoneCurve(xs, ys) {
+  const n = xs.length;
+  if (n < 2) return xs.map((x, i) => [x, ys[i]]);
+  if (n === 2) return [[xs[0], ys[0]], [xs[1], ys[1]]];
+
+  // slopes of the secant lines
+  const dx = [], dy = [], m = [];
+  for (let i = 0; i < n - 1; i++) {
+    dx.push(xs[i + 1] - xs[i]);
+    dy.push(ys[i + 1] - ys[i]);
+    m.push(dy[i] / (dx[i] || 1e-12));
+  }
+  // tangents at the knots
+  const t = [m[0]];
+  for (let i = 1; i < n - 1; i++) {
+    if (m[i - 1] * m[i] <= 0) {
+      t.push(0);  // local extremum: flat tangent keeps it monotone
+    } else {
+      const w1 = 2 * dx[i] + dx[i - 1];
+      const w2 = dx[i] + 2 * dx[i - 1];
+      t.push((w1 + w2) / (w1 / m[i - 1] + w2 / m[i]));
+    }
+  }
+  t.push(m[n - 2]);
+
+  // dense samples per segment
+  const out = [];
+  for (let i = 0; i < n - 1; i++) {
+    const steps = 24;
+    for (let s = 0; s < steps; s++) {
+      const u = s / steps;
+      const h00 = 2 * u ** 3 - 3 * u ** 2 + 1;
+      const h10 = u ** 3 - 2 * u ** 2 + u;
+      const h01 = -2 * u ** 3 + 3 * u ** 2;
+      const h11 = u ** 3 - u ** 2;
+      out.push([
+        xs[i] + u * dx[i],
+        h00 * ys[i] + h10 * dx[i] * t[i] + h01 * ys[i + 1] + h11 * dx[i] * t[i + 1],
+      ]);
+    }
+  }
+  out.push([xs[n - 1], ys[n - 1]]);
+  return out;
 }
 
 // ── combos + Pareto front (client-side, axis dependent) ─────────────────
@@ -231,7 +281,7 @@ function baseOption() {
     animationDuration: 320,
     animationDurationUpdate: 220,
     // generous breathing room around the plot
-    grid: { left: 46, right: 56, top: 52, bottom: 24, containLabel: true },
+    grid: { left: 64, right: 78, top: 66, bottom: 36, containLabel: true },
     legend: {
       top: 0,
       left: 0,
@@ -302,8 +352,17 @@ function render() {
     runPts.push({ value: [x, y], run: r, runIndex: i });
   });
 
-  const envelope = front.map((c) => [c.mean[xk], c.mean[yk]]);
-  const frontPts = front.map((c) => ({
+  // Front points sorted by "goodness" along x (all axes are inverted so
+  // up/right = better, sort by raw value then let the axis flip visually)
+  const sortedFront = [...front].sort((a, b) => a.mean[xk] - b.mean[xk]);
+  // Smooth curve through the front points: monotone cubic interpolation
+  // (Fritsch-Carlson) — passes exactly through every point, no overshoot
+  // wiggles between sparse points, unlike a polynomial fit.
+  const envelope = monotoneCurve(
+    sortedFront.map((c) => c.mean[xk]),
+    sortedFront.map((c) => c.mean[yk]),
+  );
+  const frontPts = sortedFront.map((c) => ({
     value: [c.mean[xk], c.mean[yk]],
     combo: c,
   }));
@@ -618,7 +677,8 @@ async function load({ initial = false } = {}) {
     sel.innerHTML =
       `<option value="all">全部运行组</option>` +
       groups.map((g) => `<option value="${g}">运行组 ${g}</option>`).join("");
-    if (!groups.includes(state.group)) state.group = "all";
+    // default to group 0 unless absent
+    if (!groups.includes(state.group)) state.group = groups[0] || "all";
     sel.value = state.group;
 
     $("loading").classList.add("hidden");

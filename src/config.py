@@ -66,6 +66,11 @@ class PowerConfig(BaseModel):
         default=600, ge=0,
         description="Seconds of replay playback for warm-up (0 = skip)"
     )
+    # Port of the result UI that launches automatically when a batch ends.
+    webui_port: int = Field(
+        default=8787, ge=1, le=65535,
+        description="Port for the auto-launched result webui"
+    )
 
 # =========== Config root ==============
 
