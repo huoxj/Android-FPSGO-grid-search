@@ -46,7 +46,7 @@ class PowerConfig(BaseModel):
     # INTO the hot band; a controlled burn takes tens of minutes.
     warmup: bool = Field(
         default=True,
-        description="Burn CPU load before each run so the ready gate passes quickly"
+        description="Play a replay before each run so the ready gate passes quickly"
     )
     # Each run starts from a full battery: charge with the screen off until
     # the gauge reaches this, KEEP charging through warmup and the ready
@@ -56,20 +56,14 @@ class PowerConfig(BaseModel):
         description="Battery capacity (%%) to wait for before each run"
     )
     charge_wait_max: int = Field(
-        default=2700,
+        default=7200,
         description="Max seconds to wait for the charge target"
     )
-    # Warm-up = play replay card 0 for this long (game = CPU+GPU+screen
-    # heater; its equilibrium sits ~1-2K above the ready thresholds, while
-    # a throttled CPU-only burn equilibrates BELOW them - measured).
+    # Warm-up = play replay card 0 until the thermal plateau is reached;
+    # this cap only matters for slow cold starts.
     warmup_secs: int = Field(
-        default=600, ge=0,
-        description="Seconds of replay playback for warm-up (0 = skip)"
-    )
-    # Port of the result UI that launches automatically when a batch ends.
-    webui_port: int = Field(
-        default=8787, ge=1, le=65535,
-        description="Port for the auto-launched result webui"
+        default=900, ge=0,
+        description="Warm-up playback cap in seconds (0 = skip)"
     )
 
 # =========== Config root ==============
@@ -79,6 +73,12 @@ class Config(BaseSettings):
     output_dir: str = Field(
         default="gs/test",
         description="Output directory for traces and metadata"
+    )
+
+    # Port of the result UI that launches automatically when a batch ends.
+    webui_port: int = Field(
+        default=8787, ge=1, le=65535,
+        description="Port for the auto-launched result webui"
     )
 
     grid: dict[str, list] = Field(
@@ -105,8 +105,8 @@ class Config(BaseSettings):
     )
 
     repeats: int = Field(
-        default=1, ge=1,
-        description="Runs per grid combo"
+        default=3, ge=1,
+        description="Runs per grid combo (one run per replay group)"
     )
 
     shuffle_seed: int | None = Field(
@@ -135,22 +135,24 @@ class Config(BaseSettings):
     )
 
     early_stop_fps_threshold: int = Field(
-        default=114,
-        description="FPS threshold for early stopping"
+        default=0,
+        description="Early-stop FPS threshold; 0 disables early stopping"
     )
 
     # Per-zone ready temperature thresholds (milli-°C), simulating a
-    # continuous-run hot state. zone0=soc_max, zone44=tsx_ntc, zone53=battery
+    # continuous-run hot state. Defaults are deliberately low/cold: real
+    # values are game- and device-specific, see the per-game docs.
+    # zone0=soc_max, zone44=tsx_ntc, zone53=battery
     ready_temp_soc_max: int = Field(
-        default=60000,
+        default=35000,
         description="Ready threshold for thermal zone 0 (soc_max)"
     )
     ready_temp_tsx: int = Field(
-        default=48000,
+        default=35000,
         description="Ready threshold for thermal zone 44 (tsx_ntc)"
     )
     ready_temp_battery: int = Field(
-        default=42000,
+        default=35000,
         description="Ready threshold for thermal zone 53 (battery)"
     )
 

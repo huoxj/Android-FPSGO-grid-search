@@ -5,12 +5,18 @@ run_max_attempts = 8
 backoff_initial_secs = 15
 early_stop_dur = 60
 early_stop_check_interval = 5
-early_stop_fps_threshold = 114
+early_stop_fps_threshold = 0
+
+repeats = 3
+shuffle_seed = 1017
 
 # Per-zone ready thresholds (milli-°C): zone0=soc_max / zone44=tsx_ntc / zone53=battery
-ready_temp_soc_max = 60000
-ready_temp_tsx = 48000
-ready_temp_battery = 42000
+# Defaults are cold placeholders; see the per-game docs for recommended values
+ready_temp_soc_max = 35000
+ready_temp_tsx = 35000
+ready_temp_battery = 35000
+
+webui_port = 8787
 
 [grid]
 blc_boost = [100]
@@ -27,14 +33,11 @@ config_dir = "./perfetto_configs"
 [power]
 enable = true
 warmup = true
-
-# Runs per grid combo; run order = this many independently shuffled
-# grid passes (shuffle_seed: null = random seed, printed at startup)
-#repeats = 1
-#shuffle_seed = null
+charge_target = 100
+charge_wait_max = 7200
+warmup_secs = 900
 
 [sgame]
 package_name = "com.tencent.tmgp.sgame"
 package_name_short = "cent.tmgp.sgame"
 resource_dir = "./resources/sgame"
-
