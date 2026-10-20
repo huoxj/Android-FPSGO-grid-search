@@ -194,9 +194,10 @@ _patterns: dict[str, ui.UiSpec] = {
     "back_arrow":  (np.empty((0, 0)), (0, 0, 2720, 1224), 0.85),
     "close_x":     (np.empty((0, 0)), (0, 0, 2720, 1224), 0.85),
     # Health-system rest reminder banner + its 确定 button. Match threshold
-    # tight: the "帮助" button looks similar to 确定 (second-best 0.50 vs 1.0)
-    "resting":     (np.empty((0, 0)), (0, 0, 2720, 1224), 0.90),
-    "resting_ok":  (np.empty((0, 0)), (0, 0, 2720, 1224), 0.90),
+    # 0.85 for headroom against popup animation; the "帮助" button looks
+    # similar to 确定 (second-best 0.50 vs 1.00 on the reference frame)
+    "resting":     (np.empty((0, 0)), (0, 0, 2720, 1224), 0.85),
+    "resting_ok":  (np.empty((0, 0)), (0, 0, 2720, 1224), 0.85),
 }
 
 _fixed_centers = {
