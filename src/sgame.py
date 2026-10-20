@@ -139,6 +139,13 @@ def _reenter_replay(replay_index: int):
     _tap_replay_card(replay_index)
     sleep(2)
     _tap("confirm")
+    # The rest banner also fires HERE (right after confirm, during the
+    # battle-load screen) - past the lobby loop, it used to slip through
+    # every detection and burn the timeline sync. Check once, then let
+    # _sync_timeline_0s decide.
+    sleep(2)
+    if _find("resting") is not None:
+        raise RestLockout()
 
 def _sync_timeline_0s():
     TARGET_TAG = "sgame_unity:I"
@@ -170,11 +177,18 @@ def _sync_timeline_0s():
         while True:
             remaining = deadline - monotonic()
             if remaining <= 0:
+                # Distinguish the rest-banner stall from a generic timeout:
+                # banner present -> RestLockout (cooldown + rerun), else a
+                # plain timeout (generic retry ladder).
+                if _find("resting") is not None:
+                    raise RestLockout()
                 raise TimeoutError(TIMEOUT_MSG)
 
             try:
                 line = q.get(timeout=remaining)
             except queue.Empty:
+                if _find("resting") is not None:
+                    raise RestLockout()
                 raise TimeoutError(TIMEOUT_MSG)
 
             if TARGET_NEEDLE in line:
