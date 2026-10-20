@@ -109,6 +109,13 @@ def _reenter_replay(replay_index: int):
             lobby_detect_times += 1
             continue
         lobby_detect_times = 0
+        # Health-system rest reminder ("呵护双眼 请您休息一下"): a dismissible
+        # popup, not a lockout - tap 确定 and retry the lobby immediately
+        # (only the HARD lockout needs the cooldown, which lives upstream).
+        if _find_and_tap("resting", raise_on_missing=False):
+            sleep(1)
+            _find_and_tap("resting_ok", raise_on_missing=False)
+            continue
         # Try to close any popups, ads, etc
         for name in ["back_arrow", "close_x"]:
             if _find_and_tap(name, raise_on_missing=False):
@@ -185,7 +192,11 @@ _patterns: dict[str, ui.UiSpec] = {
     "start":       (np.empty((0, 0)), (0, 0, 2720, 1224), 0.90),
     "replay":      (np.empty((0, 0)), (1863, 0, 2096, 172), 0.90),
     "back_arrow":  (np.empty((0, 0)), (0, 0, 2720, 1224), 0.85),
-    "close_x":     (np.empty((0, 0)), (0, 0, 2720, 1224), 0.85)
+    "close_x":     (np.empty((0, 0)), (0, 0, 2720, 1224), 0.85),
+    # Health-system rest reminder banner + its 确定 button. Match threshold
+    # tight: the "帮助" button looks similar to 确定 (second-best 0.50 vs 1.0)
+    "resting":     (np.empty((0, 0)), (0, 0, 2720, 1224), 0.90),
+    "resting_ok":  (np.empty((0, 0)), (0, 0, 2720, 1224), 0.90),
 }
 
 _fixed_centers = {
