@@ -47,6 +47,21 @@ def warm_and_ready() -> None:
     du.toggle_screen(True)
     du.screen_birghtness(1.0)
 
+    # Fast path: between consecutive runs the device is still on the
+    # plateau - check BEFORE spending a replay entry on heating.
+    thresholds = {
+        0: conf.ready_temp_soc_max,
+        44: conf.ready_temp_tsx,
+        53: conf.ready_temp_battery,
+    }
+    temps = {z: du.read_temp(z) for z in thresholds}
+    if all(temps[z] >= t for z, t in thresholds.items()):
+        print(
+            "warmup: already on plateau, skipping replay "
+            + " ".join(f"z{z}={temps[z] / 1000:.1f}C" for z in sorted(temps))
+        )
+        return
+
     try:
         _prepare_resources()
         # Card 0: any replay works as a heater; using the same entry path
@@ -69,11 +84,6 @@ def warm_and_ready() -> None:
                 print(f"warmup: entry failed ({e}); "
                       f"cooling down {LOCKOUT_COOLDOWN}s for lockout")
                 sleep(LOCKOUT_COOLDOWN)
-        thresholds = {
-            0: conf.ready_temp_soc_max,
-            44: conf.ready_temp_tsx,
-            53: conf.ready_temp_battery,
-        }
         t0 = monotonic()
         while True:
             temps = {z: du.read_temp(z) for z in thresholds}
