@@ -90,6 +90,14 @@ def _reenter_replay(replay_index: int):
     # 2. Enter the replay menu. Closes all ads or notifications
     # through the opening process
 
+    # 2.0. Update announcement may cover the start button: dismiss and
+    # re-wait until start is actually visible
+    misc.wait_for(
+        lambda: _find("start") is not None or _find_and_tap(
+            "close_x", raise_on_missing=False),
+        timeout=60, interval=2
+    )
+
     # 2.1. Waiting & then press 'Enter game' button
     misc.wait_for(
         lambda: _find("start"), timeout=60, interval=2
