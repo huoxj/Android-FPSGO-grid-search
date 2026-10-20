@@ -7,12 +7,15 @@ from config import get_config
 from fpsgo_params_grid import get_grid_samples as get_grid
 from checkpoint import CheckpointMgr
 from device_state import DeviceMgr
-from sgame import sgame_run
+from sgame import sgame_run, RestLockout
 from power import cut_for_measurement, restore_charging
 from warmup import warm_and_ready
 from utils.adb import AdbOffline, adb_shell
 
 _NON_RETRYABLE = (FileNotFoundError, KeyError)
+
+# Health-system lockout duration + margin
+REST_COOLDOWN_SECS = 15 * 60 + 60
 
 def _wait_for_device():
     """Block until adb answers again. A disconnected device is not a run
@@ -103,6 +106,14 @@ def main():
                 # just wait for it to come back and retry this run.
                 print(f"\nDevice offline during run: waiting instead of retrying")
                 _wait_for_device()
+                continue
+            except RestLockout:
+                # Health-system rest banner: the lockout is minutes-scale
+                # and retrying faster is pointless. Not an attempt - wait
+                # it out, then rerun this run from scratch.
+                print(f"\nRest lockout detected: cooling down "
+                      f"{REST_COOLDOWN_SECS}s, then rerunning this run")
+                sleep(REST_COOLDOWN_SECS)
                 continue
             except Exception as e:
                 # Backoff retry

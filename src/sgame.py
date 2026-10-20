@@ -109,13 +109,11 @@ def _reenter_replay(replay_index: int):
             lobby_detect_times += 1
             continue
         lobby_detect_times = 0
-        # Health-system rest reminder ("呵护双眼 请您休息一下"): a dismissible
-        # popup, not a lockout - tap 确定 and retry the lobby immediately
-        # (only the HARD lockout needs the cooldown, which lives upstream).
-        if _find_and_tap("resting", raise_on_missing=False):
-            sleep(1)
-            _find_and_tap("resting_ok", raise_on_missing=False)
-            continue
+        # Health-system rest banner ("呵护双眼 请您休息一下"): tapping 确定
+        # QUITS THE GAME. Raise so the caller runs the 15-min cooldown and
+        # restarts the whole run; _exit_game happens there already.
+        if _find("resting", ss) is not None:
+            raise RestLockout()
         # Try to close any popups, ads, etc
         for name in ["back_arrow", "close_x"]:
             if _find_and_tap(name, raise_on_missing=False):
@@ -234,8 +232,14 @@ def _prepare_resources():
             raise FileNotFoundError(f"Missing template {name}.png")
         _patterns[name] = (templ, *spec[1:])
 
-def _find(name):
-    return ui.find(ui.shot(), _patterns[name])
+class RestLockout(Exception):
+    """Health-system rest banner detected; tapping 确定 quits the game."""
+
+
+def _find(name, img=None):
+    if img is None:
+        img = ui.shot()
+    return ui.find(img, _patterns[name])
 
 def _tap(name):
     ui.tap(*_fixed_centers[name])
