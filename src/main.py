@@ -11,6 +11,9 @@ from sgame import sgame_run, RestLockout
 from power import cut_for_measurement, restore_charging
 from warmup import warm_and_ready
 from utils.adb import AdbOffline, adb_shell
+# Top-level so PyArmor's dependency scan sees it (a function-level import
+# could be missed and the frozen exe would die on `module webui`).
+from webui.server import serve
 
 _NON_RETRYABLE = (FileNotFoundError, KeyError)
 
@@ -134,22 +137,13 @@ def main():
           f"{completed_runs}/{skipped_runs}/{len(run_queue)}"
     )
 
-    # Launch the result UI and block on it, so the console stays alive
-    # until the operator closes the browser tab / Ctrl-C.
-    import subprocess
-    import sys
+    # Launch the result UI in-process and block on it, so the console stays
+    # alive until the operator closes the browser tab / Ctrl-C. (In the
+    # PyInstaller build sys.executable is the exe itself, so spawning
+    # `python -m src.webui` would re-run the whole search.)
     from pathlib import Path
 
-    ui_cmd = [
-        sys.executable, "-m", "src.webui",
-        "--output", str(Path(config.output_dir).resolve()),
-        "--port", str(config.webui_port),
-    ]
-    print("Starting webui:", " ".join(ui_cmd))
-    try:
-        subprocess.run(ui_cmd, check=True)
-    except KeyboardInterrupt:
-        pass
+    serve(str(Path(config.output_dir).resolve()), config.webui_port)
 
 def resolve_replay_index(group: int) -> int:
     """Which replay card this run plays.

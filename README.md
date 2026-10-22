@@ -39,9 +39,24 @@ uv run src/main.py
 
 ### 从 release 版本运行
 
-先修改 `config.toml` 的对应配置。见[配置](#配置)节。
+release 包内含两个可执行文件：
 
-之后直接运行 `fpsgo-optim` 或 `fpsgo-tools` 即可自动开始调参。搜索完毕后，会在命令行中输出简报，以及在 `output_dir` 下生成详细报告文件。
+- `fpsgo-optim`：自动调参主程序。先修改 `config.toml` 的对应配置（见[配置](#配置)节），然后在包目录下直接运行即可自动开始调参。搜索完毕后，会在命令行中输出简报，并在 `output_dir` 下生成详细报告文件，随后自动启动 webui 展示结果。
+- `fpsgo-webui`：单独的结果分析工具，不连接设备。直接运行即按 `config.toml` 的 `output_dir` 打开 webui；也可以显式指定目录与端口：
+
+  ```
+  fpsgo-webui --output gs/0919 --port 8787
+  ```
+
+两个程序均需在包目录下运行（从同目录的 `config.toml` 读配置）。webui 启动后通过 `http://localhost:<webui_port>` 访问。
+
+### 源码模式单独启动 webui
+
+不跑搜索、只想分析已有输出时，可以从源码直接启动 webui：
+
+```bash
+uv run python -m src.webui --output gs/0919 [--port 8787]
+```
 
 ## 配置
 

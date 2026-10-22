@@ -18,8 +18,9 @@ fi
 echo "$TP_SHA256  $TP_BIN" | sha256sum -c - || { echo "sha256 checksum failed"; exit 1; }
 chmod +x "$TP_BIN"
 
-# 2. Build executable
+# 2. Build executables (search + standalone webui)
 NAME=fpsgo-optim
+NAME_WEBUI=fpsgo-webui
 VERSION=$(git describe --tags --always 2>/dev/null || echo dev)
 TARGET="$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m)"
 
@@ -29,12 +30,21 @@ uv run pyarmor gen --pack onefile -O dist src/main.py
 uv run pyinstaller --onefile --name "$NAME" \
   --additional-hooks-dir .pyarmor/pack \
   --collect-data perfetto \
+  --add-data "src/webui/static:webui/static" \
   .pyarmor/pack/dist/main.py
+
+# Plain entry (no PyArmor) for the standalone webui exe.
+uv run pyinstaller --onefile --name "$NAME_WEBUI" \
+  --paths src \
+  --collect-data perfetto \
+  --add-data "src/webui/static:webui/static" \
+  src/webui_main.py
 
 # 3. Create Package
 PKG="dist/${NAME}-${VERSION}-${TARGET}"
 rm -rf "$PKG" && mkdir -p "$PKG"
 mv "dist/$NAME" "$PKG/$NAME"
+mv "dist/$NAME_WEBUI" "$PKG/$NAME_WEBUI"
 cp -r resources perfetto_configs docs "$PKG/"
 cp config.example.toml "$PKG/config.toml"
 cp README.md LICENSE "$PKG/"
