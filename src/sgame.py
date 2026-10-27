@@ -1,5 +1,6 @@
 from time import sleep, monotonic
 from pathlib import Path
+from typing import NoReturn
 import subprocess
 import cv2
 import numpy as np
@@ -10,7 +11,7 @@ from config import get_config
 from utils.perfetto import start_perfetto_tracing
 from utils.fpsgo import read_fpsgo_fps, apply_params
 from utils.adb import adb_follow, adb_shell
-from utils import misc, ui
+from utils import ui
 
 def sgame_run(params: dict, replay_index: int) -> Path:
     conf = get_config()
@@ -87,65 +88,63 @@ def _reenter_replay(replay_index: int):
         f"{conf.sgame.package_name}/{conf.sgame.activity_name}"
     )
 
-    # 2. Enter the replay menu. Closes all ads or notifications
-    # through the opening process
+    # The game logs its own stage transitions, so the steps that are only
+    # blind taps can still prove themselves. One stream for the whole entry.
+    with _LogWatch("sgame_unity:I") as logs:
+        # 2. Wait for the start button. Ads / update announcements cover it, so
+        # every poll also tries to close one.
+        _sync_point(
+            "start_button",
+            lambda: _find("start") is not None,
+            timeout=60, interval=2,
+            on_wait=lambda: _find_and_tap("close_x", raise_on_missing=False),
+        )
+        _tap("start")
 
-    # 2.0. Update announcement may cover the start button: dismiss and
-    # re-wait until start is actually visible
-    misc.wait_for(
-        lambda: _find("start") is not None or _find_and_tap(
-            "close_x", raise_on_missing=False),
-        timeout=60, interval=2
-    )
+        # 3. Lobby: the log line proves the lobby finished opening, then two
+        # clean frames prove no popup is covering it. Polls close popups; the
+        # rest banner is a lockout, not a retry.
+        def _rest_check():
+            # Health-system rest banner ("呵护双眼 请您休息一下"): tapping 确定
+            # QUITS THE GAME. Raise so the caller runs the 15-min cooldown and
+            # restarts the whole run; _exit_game happens there already.
+            if _find("resting") is not None:
+                raise RestLockout()
 
-    # 2.1. Waiting & then press 'Enter game' button
-    misc.wait_for(
-        lambda: _find("start"), timeout=60, interval=2
-    )
-    _tap("start")
+        def _clear_popups():
+            _rest_check()
+            # Try to close any popups, ads, etc
+            for name in ["back_arrow", "close_x"]:
+                if _find_and_tap(name, raise_on_missing=False):
+                    return
 
-    # 2.2. Close all notifications, ads, etc
-    lobby_detect_times = 0
-    deadline = monotonic() + 60
-    while lobby_detect_times < 2:
-        # Timeout check 60s
-        if monotonic() > deadline:
-            raise TimeoutError("Did not enter lobby after 60s")
+        logs.wait("lobby_open", "ImpOpenLobbyStep6", timeout=60,
+                  on_wait=_clear_popups)
+        _sync_point(
+            "lobby_clean",
+            lambda: _is_in_lobby(ui.shot()),
+            timeout=30, interval=1, stable=2,
+            on_wait=_clear_popups,
+        )
 
-        ss = ui.shot()
-        if _is_in_lobby(ss):
-            lobby_detect_times += 1
-            continue
-        lobby_detect_times = 0
-        # Health-system rest banner ("呵护双眼 请您休息一下"): tapping 确定
-        # QUITS THE GAME. Raise so the caller runs the 15-min cooldown and
-        # restarts the whole run; _exit_game happens there already.
-        if _find("resting", ss) is not None:
-            raise RestLockout()
-        # Try to close any popups, ads, etc
-        for name in ["back_arrow", "close_x"]:
-            if _find_and_tap(name, raise_on_missing=False):
-                break
-        sleep(1)
-
-    # 3. Enter the replay. Wait until loaded
-    _tap("replay")
-    sleep(2)
-    _tap("local_tab")
-    sleep(2)
-    # The index comes from the CALLER (resolved per run), never from config:
-    # this line once read conf.replay_index instead, silently pinning every
-    # group to card 0 while the meta recorded the intended index.
-    _tap_replay_card(replay_index)
-    sleep(2)
-    _tap("confirm")
-    # The rest banner also fires HERE (right after confirm, during the
-    # battle-load screen) - past the lobby loop, it used to slip through
-    # every detection and burn the timeline sync. Check once, then let
-    # _sync_timeline_0s decide.
-    sleep(2)
-    if _find("resting") is not None:
-        raise RestLockout()
+        # 4. Enter the replay. The picker / tab / card taps stay blind (the
+        # game logs nothing between the lobby and the battle), but the confirm
+        # is proven ~1.3s later by the work-mode line instead of 60s later by
+        # the 0s needle, and the rest banner breaks the wait instead of
+        # slipping past a post-hoc check.
+        _tap("replay")
+        sleep(2)
+        _tap("local_tab")
+        sleep(2)
+        # The index comes from the CALLER (resolved per run), never from
+        # config: this line once read conf.replay_index instead, silently
+        # pinning every group to card 0 while the meta recorded the intended
+        # index.
+        _tap_replay_card(replay_index)
+        sleep(2)
+        _tap("confirm")
+        logs.wait("replay_accepted", "watchWorkMode = Replay", timeout=20,
+                  on_wait=_rest_check)
 
 def _sync_timeline_0s():
     TARGET_TAG = "sgame_unity:I"
@@ -153,6 +152,15 @@ def _sync_timeline_0s():
 
     TIMEOUT_SECS = 60
     TIMEOUT_MSG = f"Sync replay timeline 0s timeout after {TIMEOUT_SECS}s"
+
+    def _timeout() -> NoReturn:
+        # Distinguish the rest-banner stall from a generic timeout: banner
+        # present -> RestLockout (cooldown + rerun), else dump the stuck frame
+        # and raise a sync timeout (generic retry ladder).
+        if _find("resting") is not None:
+            raise RestLockout()
+        _dump_failure("battle_0s", TIMEOUT_SECS)
+        raise SyncTimeout(TIMEOUT_MSG)
 
     with adb_follow(
         cmd = f"logcat -v monotonic -s {TARGET_TAG}",
@@ -177,19 +185,12 @@ def _sync_timeline_0s():
         while True:
             remaining = deadline - monotonic()
             if remaining <= 0:
-                # Distinguish the rest-banner stall from a generic timeout:
-                # banner present -> RestLockout (cooldown + rerun), else a
-                # plain timeout (generic retry ladder).
-                if _find("resting") is not None:
-                    raise RestLockout()
-                raise TimeoutError(TIMEOUT_MSG)
+                _timeout()
 
             try:
                 line = q.get(timeout=remaining)
             except queue.Empty:
-                if _find("resting") is not None:
-                    raise RestLockout()
-                raise TimeoutError(TIMEOUT_MSG)
+                _timeout()
 
             if TARGET_NEEDLE in line:
                 return
@@ -256,6 +257,117 @@ def _prepare_resources():
 
 class RestLockout(Exception):
     """Health-system rest banner detected; tapping 确定 quits the game."""
+
+
+class SyncTimeout(TimeoutError):
+    """A named entry step never reached its completion state; rerun the run."""
+
+
+def _sync_point(name, ok, timeout, interval=1.0, stable=1, on_wait=None):
+    """Wait until `ok()` held `stable` times in a row.
+
+    Every step of the entry flow proves its own completion through one of
+    these, so a stuck run fails at the step that actually stalled instead of
+    surfacing as a timeline-sync timeout at the end.
+    """
+    deadline = monotonic() + timeout
+    hits = 0
+    while True:
+        if monotonic() > deadline:
+            _dump_failure(name, timeout)
+            raise SyncTimeout(f"{name}: not reached within {timeout}s")
+        if ok():
+            hits += 1
+            if hits >= stable:
+                return
+            continue        # confirm on a fresh frame right away
+        hits = 0
+        if on_wait is not None:
+            on_wait()
+        sleep(interval)
+
+
+def _dump_failure(name: str, timeout: float):
+    """Save the stuck frame and list which known templates are on it.
+
+    The frame is what localises the failure: an unmodelled screen still shows
+    whether we are in the lobby (replay visible), under a popup (close_x), or
+    somewhere with no known chrome at all (picker / battle load).
+    """
+    img = ui.shot()
+    out_dir = Path(get_config().output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    # One file per step, overwritten: read it right after the failure.
+    path = out_dir / f"sync_fail_{name}.png"
+    cv2.imwrite(str(path), img)
+    seen = [
+        n for n, spec in _patterns.items()
+        if spec[0].size and ui.find(img, spec) is not None
+    ]
+    print(f"[sync] step '{name}' not reached in {timeout}s; "
+          f"visible templates={seen} frame={path}")
+
+
+class _LogWatch:
+    """One background `logcat -s <tag>` stream, many named needle waits.
+
+    The game logs its own Unity-side stage transitions, so entry steps that are
+    only blind taps can still prove themselves. `-T 1` starts at the tail of
+    the ring buffer (it does not imply -d, so it keeps following): without it a
+    previous run's needle would still be buffered and pass a fresh wait.
+    """
+
+    POLL = 0.3
+
+    def __init__(self, tag: str):
+        self._lines: list[str] = []
+        self._cursor = 0
+        self._p = subprocess.Popen(
+            ["adb", "logcat", "-v", "monotonic", "-T", "1", "-s", tag],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            text=True, errors="replace", bufsize=1,
+        )
+        threading.Thread(target=self._pump, daemon=True).start()
+
+    def _pump(self):
+        assert self._p.stdout is not None
+        for line in self._p.stdout:
+            self._lines.append(line)
+
+    def wait(self, name: str, needle: str, timeout: float, on_wait=None):
+        """Block until a *new* line contains `needle`; on timeout dump + raise."""
+        deadline = monotonic() + timeout
+        while True:
+            while self._cursor < len(self._lines):
+                line = self._lines[self._cursor]
+                self._cursor += 1
+                if needle in line:
+                    return
+            if self._p.poll() is not None:
+                # Stream died (bad args, adb drop): never disguise it as a
+                # slow game.
+                raise RuntimeError(f"{name}: logcat stream ended")
+            if monotonic() > deadline:
+                _dump_failure(name, timeout)
+                raise SyncTimeout(f"{name}: '{needle}' not seen in {timeout}s")
+            if on_wait is not None:
+                on_wait()
+            sleep(self.POLL)
+
+    def close(self):
+        if self._p.poll() is None:
+            self._p.terminate()
+            try:
+                self._p.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self._p.kill()
+                self._p.wait()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
 
 
 def _find(name, img=None):
