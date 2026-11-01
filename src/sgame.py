@@ -68,7 +68,10 @@ def sgame_run(params: dict, replay_index: int) -> Path:
         # Stop perfetto tracing
         proc.terminate()
         try:
-            proc.wait(timeout=30)
+            # record_trace pulls the file before it exits, and that pull takes
+            # minutes for a 1.3GB trace. 30s killed it mid-transfer; the pull
+            # itself has no timeout of its own.
+            proc.wait(timeout=600)
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait()
@@ -211,7 +214,7 @@ def _grid_marker(text: str):
 
 _patterns: dict[str, ui.UiSpec] = {
     "start":       (np.empty((0, 0)), (0, 0, 2720, 1224), 0.90),
-    "replay":      (np.empty((0, 0)), (1863, 0, 2096, 172), 0.90),
+    "replay":      (np.empty((0, 0)), (1863, 0, 2096, 172), 0.85),
     "back_arrow":  (np.empty((0, 0)), (0, 0, 2720, 1224), 0.85),
     "close_x":     (np.empty((0, 0)), (0, 0, 2720, 1224), 0.85),
     # Health-system rest reminder banner + its 确定 button. Match threshold

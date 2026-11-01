@@ -1,31 +1,28 @@
-"""Warm-up: play a replay to push the device onto its thermal plateau.
+"""Warm-up: replay loop until every thermal zone is above its threshold.
 
-Why the game and not a CPU burn: the ready thresholds were calibrated AT
-the game's own steady state (battery ~42C), and a throttled CPU-only burn
-equilibrates BELOW them (measured 2026-10-17 evening: battery plateau
-41.1C / tsx 45.3C after 25 min - it can never clear 42/48 because the
-governor clamps the burn cores as the device heats). The game itself
-(CPU+GPU+screen at 5-6W) reaches the plateau in minutes, is exactly the
-workload's thermal profile, and needs no synthetic-load machinery.
+Why the replay and not a CPU burn: the replay is the workload's own thermal
+profile (CPU+GPU+screen). A CPU-only burn concentrates the heat in the SoC
+sensor and never lifts the battery/tsx zones - measured 2026-10-31 with
+stress-ng matrixprod on 8 cores, screen on: z0 74-81C while z44/z53 stayed
+flat at 44.5/38.9C (the game reaches 65-68 / 47-49 / 43-44C).
 
-Exit rule: stop as soon as every zone sits above its ready threshold
-(i.e. the device has reached the plateau the thresholds were calibrated
-from), bounded by warmup_secs as a safety cap. Between consecutive runs
-the device is still hot, so this usually exits in ~5 min instead of
-burning the full cap.
+One replay is often not enough heat, so the loop restarts the game and
+re-enters the replay after run_duration of playback and keeps going until
+every zone has been ABOVE its ready threshold for 3 consecutive samples
+(10s apart), bounded by warmup_secs.
 
-Failure mode: if the host dies mid-warmup the game keeps running until
-its replay ends and idles in the menu - no device-side daemons involved,
-but also no auto-cleanup; the next host run force-stops the game anyway.
+No side effects: nothing is written to the device (params belong to measured
+runs) and the game is force-stopped on the way out - also on Ctrl-C or any
+exception, so the loop can be interrupted at any moment.
 """
 from time import monotonic, sleep
 
 from config import get_config
-from utils import device_utils as du
+import utils.device_utils as du
 from sgame import _prepare_resources, _reenter_replay, _exit_game, _sync_timeline_0s
 
-WARMUP_POLL = 20
-
+WARMUP_POLL = 10      # seconds between temperature samples
+CONFIRM_SAMPLES = 3   # consecutive above-threshold samples == hot enough
 
 # Play-session limiter ("强制休息" / anti-addiction lockouts) blocks the
 # game for minutes. Retrying on the old 15s*2^n ladder burns attempts
@@ -34,11 +31,9 @@ WARMUP_POLL = 20
 # entry failure inside warmup is treated as a possible lockout.
 LOCKOUT_COOLDOWN = 15 * 60 + 60  # 15-min lock + margin
 
-class _EntryFailed(Exception):
-    pass
 
 def warm_and_ready() -> None:
-    """Heat the device to its plateau by playing replay card 0."""
+    """Loop replays until every thermal zone is above its ready threshold."""
     conf = get_config()
     if conf.power.warmup_secs <= 0:
         return
@@ -47,70 +42,76 @@ def warm_and_ready() -> None:
     du.toggle_screen(True)
     du.screen_birghtness(1.0)
 
-    # Fast path: between consecutive runs the device is still on the
-    # plateau - check BEFORE spending a replay entry on heating.
     thresholds = {
         0: conf.ready_temp_soc_max,
         44: conf.ready_temp_tsx,
         53: conf.ready_temp_battery,
     }
-    temps = {z: du.read_temp(z) for z in thresholds}
-    if all(temps[z] >= t for z, t in thresholds.items()):
+
+    def temps_now() -> dict[int, int]:
+        return {z: du.read_temp(z) for z in thresholds}
+
+    def above_all(temps: dict[int, int]) -> bool:
+        return all(temps[z] > t for z, t in thresholds.items())
+
+    def report(temps: dict[int, int], elapsed: float, above: int) -> None:
         print(
-            "warmup: already on plateau, skipping replay "
+            "warmup "
+            + " ".join(
+                f"z{z}={temps[z] / 1000:.1f}/{t / 1000:.1f}C"
+                for z, t in sorted(thresholds.items())
+            )
+            + f" elapsed {elapsed:.0f}s above={above}/{CONFIRM_SAMPLES}"
+        )
+
+    # Fast path: back-to-back runs still sit on the plateau - no replay needed
+    temps = temps_now()
+    if above_all(temps):
+        print(
+            "warmup: already hot enough, skipping replay "
             + " ".join(f"z{z}={temps[z] / 1000:.1f}C" for z in sorted(temps))
         )
         return
 
+    _prepare_resources()
+    t0 = monotonic()
+    above = 0
     try:
-        _prepare_resources()
-        # Card 0: any replay works as a heater; using the same entry path
-        # as real runs means identical, already-proven UI automation.
-        # FPSGO params stay at game defaults (per-pid state died with the
-        # previous run's force-stop) - we only want heat here.
         while True:
             try:
+                # Card 0: any replay works as a heater
                 _reenter_replay(0)
-                # Lobby/lockout/event popups can all fake "entered": the
-                # battle actually running is only proven by the fight-start
-                # log needle (same check the measured runs rely on). A
-                # frozen replay never emits it -> cooldown + retry.
+                # Popups can fake "entered"; playback running is only proven
+                # by the fight-start log needle the measured runs rely on.
                 _sync_timeline_0s()
-                break
             except Exception as e:
-                # Entry failed (forced-rest lockout, ad, misc popup):
-                # a lockout is minutes-scale, retrying faster is pointless.
-                # Wait out the longest known lockout, then try again.
                 print(f"warmup: entry failed ({e}); "
                       f"cooling down {LOCKOUT_COOLDOWN}s for lockout")
                 sleep(LOCKOUT_COOLDOWN)
-        t0 = monotonic()
-        while True:
-            temps = {z: du.read_temp(z) for z in thresholds}
-            if all(temps[z] >= t for z, t in thresholds.items()):
-                print(
-                    "warmup: plateau reached after "
-                    f"{monotonic() - t0:.0f}s "
-                    + " ".join(f"z{z}={temps[z] / 1000:.1f}C"
-                               for z in sorted(temps))
-                )
-                return
-            if monotonic() - t0 >= conf.power.warmup_secs:
-                print(
-                    f"warmup: cap {conf.power.warmup_secs}s hit, "
-                    "releasing to the ready gate "
-                    + " ".join(f"z{z}={temps[z] / 1000:.1f}C"
-                               for z in sorted(temps))
-                )
-                return
-            print(
-                "warmup " +
-                " ".join(
-                    f"z{z}={temps[z] / 1000:.1f}/{t / 1000:.0f}C"
-                    for z, t in sorted(thresholds.items())
-                ) +
-                f" elapsed {monotonic() - t0:.0f}s"
-            )
-            sleep(WARMUP_POLL)
+                continue
+
+            # Watch this replay for one run's worth of playback, then restart
+            # into a fresh one - a single replay is often not enough heat.
+            played = monotonic()
+            while monotonic() - played < conf.run_duration:
+                temps = temps_now()
+                above = above + 1 if above_all(temps) else 0
+                report(temps, monotonic() - t0, above)
+                if above >= CONFIRM_SAMPLES:
+                    print(f"warmup: hot enough after {monotonic() - t0:.0f}s")
+                    return
+                if monotonic() - t0 >= conf.power.warmup_secs:
+                    print(
+                        f"warmup: cap {conf.power.warmup_secs}s hit, "
+                        "releasing to the ready gate "
+                        + " ".join(f"z{z}={temps[z] / 1000:.1f}C"
+                                   for z in sorted(temps))
+                    )
+                    return
+                sleep(WARMUP_POLL)
+
+            print(f"warmup: replay played {conf.run_duration}s, "
+                  "restarting into a fresh one")
+            _exit_game()
     finally:
         _exit_game()

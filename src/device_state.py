@@ -5,6 +5,11 @@ from config import get_config
 import utils.device_utils as du
 from utils.adb import adb_shell
 
+# mC. Warmup heats every zone ABOVE its ready threshold; the gate then has to
+# pass as the device coasts down, so it accepts threshold + 0.5C - with the old
+# strict `<` the two conditions were mutually exclusive and deadlocked.
+READY_TEMP_TOLERANCE = 500
+
 class DeviceMgr:
     
     def __init__(self):
@@ -80,7 +85,8 @@ class DeviceMgr:
         self.last_temp_check_time = datetime.now()
 
         cur_okay = all(
-            du.read_temp(zone) < thre for zone, thre in thresholds.items()
+            du.read_temp(zone) < thre + READY_TEMP_TOLERANCE
+            for zone, thre in thresholds.items()
         )
         twice_okay = cur_okay and self.last_temp_check
         self.last_temp_check = cur_okay
