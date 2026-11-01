@@ -115,27 +115,43 @@ def _reenter_replay(replay_index: int):
         # 3. Lobby: the log line proves the lobby finished opening, then two
         # clean frames prove no popup is covering it. Polls close popups; the
         # rest banner is a lockout, not a retry.
-        def _rest_check():
+        def _rest_check(img=None):
             # Health-system rest banner ("呵护双眼 请您休息一下"): tapping 确定
             # QUITS THE GAME. Raise so the caller runs the 15-min cooldown and
             # restarts the whole run; _exit_game happens there already.
-            if _find("resting") is not None:
+            if _find("resting", img) is not None:
                 raise RestLockout()
 
-        def _clear_popups():
-            _rest_check()
+        def _clear_popups(img=None):
+            # One screencap for every candidate: each `_find` re-shoots the
+            # screen (2-3s), so a miss used to burn four shots before the wait
+            # even looked again. Callers holding a fresh frame pass it in.
+            img = ui.shot() if img is None else img
+            _rest_check(img)
             # Try to close any popups, ads, etc
             for name in ["back_arrow", "close_x", "promo_close"]:
-                if _find_and_tap(name, raise_on_missing=False):
+                loc = ui.find(img, _patterns[name])
+                if loc is not None:
+                    print(f"[sync] close {name} @ {loc}")
+                    ui.tap(*loc)
                     return
+
+        # The frame `_lobby_ok` just judged not-clean is exactly the frame the
+        # popup scan needs; reuse it instead of shooting the screen twice.
+        _frame = None
+
+        def _lobby_ok():
+            nonlocal _frame
+            _frame = ui.shot()
+            return _is_in_lobby(_frame)
 
         logs.wait("lobby_open", "ImpOpenLobbyStep6", timeout=60,
                   on_wait=_clear_popups)
         _sync_point(
             "lobby_clean",
-            lambda: _is_in_lobby(ui.shot()),
-            timeout=30, interval=1, stable=2,
-            on_wait=_clear_popups,
+            _lobby_ok,
+            timeout=60, interval=1, stable=2,
+            on_wait=lambda: _clear_popups(_frame),
         )
 
         # 4. Enter the replay. The picker / tab / card taps stay blind (the
@@ -300,6 +316,7 @@ def _sync_point(name, ok, timeout, interval=1.0, stable=1, on_wait=None):
                 return
             continue        # confirm on a fresh frame right away
         hits = 0
+        print(f"[sync] {name}: miss @ {timeout - (deadline - monotonic()):.1f}s")
         if on_wait is not None:
             on_wait()
         sleep(interval)
