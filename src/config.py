@@ -12,6 +12,11 @@ class PerfettoConfig(BaseModel):
         description="Perfetto config file dir"
     )
 
+    profile: str = Field(
+        default="sgame",
+        description="Perfetto config profile: <config_dir>/<profile>.txtpb"
+    )
+
 # ========== Game Specific Configurations ===========
 
 class SgameConfig(BaseModel):

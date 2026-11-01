@@ -7,7 +7,7 @@ from config import get_config
 from fpsgo_params_grid import get_grid_samples as get_grid
 from checkpoint import CheckpointMgr
 from device_state import DeviceMgr
-from sgame import sgame_run, RestLockout
+from sgame import sgame_run, RestLockout, PerfettoConfigError
 from power import cut_for_measurement, restore_charging
 from warmup import warm_and_ready
 from utils.adb import AdbOffline, adb_shell
@@ -15,7 +15,7 @@ from utils.adb import AdbOffline, adb_shell
 # could be missed and the frozen exe would die on `module webui`).
 from webui.server import serve
 
-_NON_RETRYABLE = (FileNotFoundError, KeyError)
+_NON_RETRYABLE = (FileNotFoundError, KeyError, PerfettoConfigError)
 
 # Health-system lockout duration + margin
 REST_COOLDOWN_SECS = 15 * 60 + 60

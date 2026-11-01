@@ -137,6 +137,41 @@ class FpsgoParams(BaseModel):
         abbr="lim_cm",
         description="中核地板 (kHz)",
     )
+    # 容量上限（百分比 0-99，源码 limit_uclamp_store 只收 val<100）：每帧 boost 都生效，
+    # 不受 minitop/suppress_ceiling 门禁。换算 freq ≈ pct% × 簇最高频点。
+    limit_uclamp: int = sysfs_field(
+        "/sys/kernel/fpsgo/fbt/limit_uclamp",
+        default=0, ge=0, le=99,
+        abbr="lim_u",
+        description="渲染组容量上限百分比 (0-99, 0=不限)",
+    )
+    limit_uclamp_m: int = sysfs_field(
+        "/sys/kernel/fpsgo/fbt/limit_uclamp_m",
+        default=0, ge=0, le=99,
+        abbr="lim_um",
+        description="中核组容量上限百分比 (0-99, 需 separate_aa)",
+    )
+    # 救援帧（jerk != INACTIVE）用的是 ruclamp 而不是 uclamp，所以只设 uclamp 时
+    # 卡顿期间上限会被抬回去。要一个"处处生效"的天花板，两组都得设。
+    limit_ruclamp: int = sysfs_field(
+        "/sys/kernel/fpsgo/fbt/limit_ruclamp",
+        default=0, ge=0, le=99,
+        abbr="lim_ru",
+        description="渲染组救援态容量上限百分比 (0-99, 0=不限)",
+    )
+    limit_ruclamp_m: int = sysfs_field(
+        "/sys/kernel/fpsgo/fbt/limit_ruclamp_m",
+        default=0, ge=0, le=99,
+        abbr="lim_rum",
+        description="中核组救援态容量上限百分比 (0-99, 需 separate_aa)",
+    )
+    # 分组开关：只有开了它，大核簇才会被 limit_*_m 压住
+    separate_aa: int = sysfs_field(
+        "/sys/kernel/fpsgo/fbt/enable_separate_aa",
+        default=0, ge=0, le=1,
+        abbr="sep_aa",
+        description="分离 AA 分组开关 (0=关, 1=开)",
+    )
 
     @classmethod
     def default(cls) -> "FpsgoParams":
@@ -155,10 +190,12 @@ class FpsgoParams(BaseModel):
         for name, fi in _SYSFS_FIELDS:
             node = _io(fi)["node"]
             raw = adb_shell(f"cat {node}")
-            try:
-                vals[name] = int(raw)
-            except (ValueError, TypeError):
+            # 有些节点回读带前缀（如 "separate_aa enable: 0"），取最后一个整数
+            nums = re.findall(r"-?\d+", raw)
+            if not nums:
                 failures.append(f"{node} (raw={raw!r})")
+            else:
+                vals[name] = int(nums[-1])
         if failures:
             raise RuntimeError(
                 "Failed to read global FPSGO params: " + "; ".join(failures)

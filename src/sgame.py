@@ -20,13 +20,21 @@ def sgame_run(params: dict, replay_index: int) -> Path:
 
     # Cleanly enter replay (replay_index picks the card in the picker grid)
     _reenter_replay(replay_index)
+
     # Start perfetto recording immediately
     proc, trace_tmp_path = start_perfetto_tracing(
-        name = "sgame",
+        name = conf.perfetto.profile,
         duration_override=run_dur + 120
     )
 
     try:
+        # perfetto 配置非法时会立刻退出，但它自己不抛异常；在这里早退，
+        # 免得烧掉整整一局才发现（错误原文已在 perfetto 输出里）。
+        sleep(3)
+        if proc.poll() is not None:
+            raise PerfettoConfigError(
+                "perfetto 启动即退出：trace 配置多半非法（见上方 perfetto 输出）"
+            )
         # Timeline 0s
         _sync_timeline_0s()
         timeline_30s = monotonic() + 30
@@ -117,7 +125,7 @@ def _reenter_replay(replay_index: int):
         def _clear_popups():
             _rest_check()
             # Try to close any popups, ads, etc
-            for name in ["back_arrow", "close_x"]:
+            for name in ["back_arrow", "close_x", "promo_close"]:
                 if _find_and_tap(name, raise_on_missing=False):
                     return
 
@@ -222,6 +230,9 @@ _patterns: dict[str, ui.UiSpec] = {
     # similar to 确定 (second-best 0.50 vs 1.00 on the reference frame)
     "resting":     (np.empty((0, 0)), (0, 0, 2720, 1224), 0.85),
     "resting_ok":  (np.empty((0, 0)), (0, 0, 2720, 1224), 0.85),
+    # 赛事/直播推广弹窗的发光 X 关闭键（53x53 原尺寸截取）。阈值放 0.80：
+    # 弹窗有淡入动画，且背后是视频画面，比对静态 UI 更容易漂。
+    "promo_close": (np.empty((0, 0)), (0, 0, 2720, 1224), 0.80),
 }
 
 _fixed_centers = {
@@ -257,6 +268,10 @@ def _prepare_resources():
         if templ is None:
             raise FileNotFoundError(f"Missing template {name}.png")
         _patterns[name] = (templ, *spec[1:])
+
+class PerfettoConfigError(Exception):
+    """trace 配置非法（perfetto 启动即退出）——重试没有意义。"""
+
 
 class RestLockout(Exception):
     """Health-system rest banner detected; tapping 确定 quits the game."""
