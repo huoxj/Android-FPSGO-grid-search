@@ -12,33 +12,23 @@ from config import get_config
 from checkpoint import CheckpointMgr
 from models.fpsgo_params import FpsgoParams
 
-SQL_TS = "SELECT ts FROM actual_frame_timeline_slice ORDER BY ts"
+SQL_TS = "SELECT ts FROM actual_frame_timeline_slice WHERE ts >= {} AND ts < {} ORDER BY ts"
 SQL_MARKERS = "SELECT ts FROM android_logs WHERE tag='grid' ORDER BY ts"
 SQL_POWER = (
     "SELECT c.ts, t.name, c.value FROM counter c "
     "JOIN counter_track t ON c.track_id = t.id "
     "WHERE t.name IN ('batt.power_mw', 'batt.current_ua') "
-    "AND c.ts >= {lo} AND c.ts <= {hi} ORDER BY c.ts"
+    "AND c.ts >= {lo} AND c.ts < {hi} ORDER BY c.ts"
 )
 JANK_TIERS = {"small": 12.0, "jank": 16.67, "severe": 125.0}
-# Cut 5s off each marker-window end: RUN_START lands while the game is
-# still settling, RUN_END races the perfetto stop (verified口径, verify_ab)
-TRIM_NS = 5_000_000_000
 
 
-def _power_stats(tp) -> dict:
-    """Whole-device power inside the RUN_START..RUN_END marker window.
+def _power_stats(tp, lo: int, hi: int) -> dict:
+    """Whole-device power inside the run window.
 
     Meaningful only in charge-cut runs; old traces (no voltage counter,
     no markers) yield {} and the report shows '-'.
     """
-    marks = tp.query(SQL_MARKERS).as_pandas_dataframe()
-    if marks.empty:
-        return {}
-    lo = int(marks["ts"].iloc[0]) + TRIM_NS
-    hi = int(marks["ts"].iloc[-1]) - TRIM_NS
-    if hi <= lo:
-        return {}
     df = tp.query(SQL_POWER.format(lo=lo, hi=hi)).as_pandas_dataframe()
     if df.empty:
         return {}
@@ -73,22 +63,33 @@ def analyze_trace(path: str) -> dict:
     )
 
     try:
-        ts = tp.query(SQL_TS) \
+        marks = tp.query(SQL_MARKERS).as_pandas_dataframe()
+        if marks.empty:
+            # Frame metrics are only meaningful inside the RUN_START window;
+            # traces without the marker (pre-2026-10 pipeline) are skipped.
+            print(f"no grid marker, skipping frame metrics: {path}")
+            return {}
+        # Run window = battle timeline 30s (RUN_START) .. +run_duration.
+        # Everything before RUN_START is replay loading and must not count.
+        run_dur = int(get_config().run_duration)
+        lo = int(marks["ts"].iloc[0])
+        hi = lo + run_dur * 1_000_000_000
+        ts = tp.query(SQL_TS.format(lo, hi)) \
                .as_pandas_dataframe()["ts"] \
                .to_numpy(dtype=np.int64)
         if ts.size < 2:
             return {}
         gaps_ms = np.diff(ts) / 1e6
-        fps_s = np.bincount((ts - ts[0]) // 1_000_000_000)[1:-1]
+        fps_s = np.bincount((ts - lo) // 1_000_000_000)[1:-1]
         return {
             "n_frames": int(ts.size),
-            "dur_s": float((ts[-1] - ts[0]) / 1e9),
-            "fps_avg": float(fps_s.mean() if fps_s.size else 0.0),
+            "dur_s": float(run_dur),
+            "fps_avg": float(ts.size / run_dur),
             "fps_std": float(fps_s.std(ddof=1) if fps_s.size > 1 else 0.0),
             **{
                 f"{k}": int((gaps_ms > t).sum()) for k, t in JANK_TIERS.items()
             },
-            **_power_stats(tp),
+            **_power_stats(tp, lo, hi),
         }
     finally:
         tp.close()
@@ -249,7 +250,8 @@ def full_report(df: pd.DataFrame, output_dir: str) -> str:
         f"# grid-search report  generated {datetime.now():%Y-%m-%d %H:%M:%S}",
         f"output_dir {output_dir}   runs {len(df)}",
         "jank_s/jank/jank_l = gap>12ms/16.67ms/125ms 帧数 (独立计数可重叠); ",
-        "fps_avg/std = 每秒帧数 (1s bucket 去首尾)",
+        "fps_avg = 窗口内 actual_frame_timeline_slice 帧数 / run_duration；"
+        "fps_std = 每秒帧数标准差",
         "",
         "## runs  (metrics)",
         _mtable(df),
