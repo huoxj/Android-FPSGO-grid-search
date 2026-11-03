@@ -13,9 +13,20 @@ from utils.fpsgo import read_fpsgo_fps, apply_params
 from utils.adb import adb_follow, adb_shell
 from utils import ui
 
-def sgame_run(params: dict, replay_index: int) -> Path:
+# A single low sample is noise (one jank burst, one popup); only a streak
+# this long means the run really is stalled.
+EARLY_STOP_STREAK = 3
+
+def sgame_run(params: dict, replay_index: int) -> tuple[Path, list[int] | None]:
+    """Run one measured replay.
+
+    Returns (trace path, early-stop fps samples). The samples are None for a
+    complete run; when not None the trace file is already deleted - the
+    recording was cut mid-window and cannot be analysed.
+    """
     conf = get_config()
     run_dur = conf.run_duration
+    early_stop_fps: list[int] | None = None
     _prepare_resources()
 
     # Cleanly enter replay (replay_index picks the card in the picker grid)
@@ -50,18 +61,22 @@ def sgame_run(params: dict, replay_index: int) -> Path:
         early_stop_deadline = monotonic() + conf.early_stop_dur
 
         # Early stopping check:
-        # reads fps from fpsgo_status per 5s, if the average fps is 5 fps lower
-        # than the optimal (need to be check), then early stop
-        fps_sum, check_count = 0, 0
-        while monotonic() < early_stop_deadline:
+        # reads fps from fpsgo_status per check interval; one low sample is
+        # noise, so stop only after EARLY_STOP_STREAK in a row fall below the
+        # threshold (threshold 0 disables it - fps is never below 0).
+        low_streak = 0
+        samples: list[int] = []
+        while low_streak < EARLY_STOP_STREAK and monotonic() < early_stop_deadline:
             deadline = monotonic() + conf.early_stop_check_interval
-            fps_sum += read_fpsgo_fps(conf.sgame.package_name_short)
-            check_count += 1
+            fps = read_fpsgo_fps(conf.sgame.package_name_short)
+            samples.append(fps)
+            low_streak = low_streak + 1 if fps < conf.early_stop_fps_threshold else 0
             sleep(max(0, deadline - monotonic()))
-        fps_avg = fps_sum / check_count
 
-        if fps_avg < conf.early_stop_fps_threshold:
-            print(f"Fps avg {fps_avg} is lower than threshold, early stopping")
+        if low_streak >= EARLY_STOP_STREAK:
+            early_stop_fps = samples
+            print(f"Fps below {conf.early_stop_fps_threshold} for "
+                  f"{EARLY_STOP_STREAK} checks in a row, early stopping")
         else:
             # Dont stop! Sleep and wait until perfetto stops
             sleep(perfetto_expected_deadline - monotonic() + 5)
@@ -86,7 +101,11 @@ def sgame_run(params: dict, replay_index: int) -> Path:
 
     _exit_game()
 
-    return trace_tmp_path
+    # Incomplete recording: the trace cannot be analysed, so keep nothing.
+    if early_stop_fps is not None:
+        trace_tmp_path.unlink(missing_ok=True)
+
+    return trace_tmp_path, early_stop_fps
 
 
 def _reenter_replay(replay_index: int):

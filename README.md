@@ -72,7 +72,7 @@ run_max_attempts = 8           # 单点最大重试次数
 backoff_initial_secs = 15      # 重试初始退避（秒），之后指数翻倍
 early_stop_dur = 60            # 提前停止检测窗口（秒）
 early_stop_check_interval = 5  # FPS 采样间隔（秒）
-early_stop_fps_threshold = 0   # 低于此平均 FPS 则提前结束/早停（0为永不早停）
+early_stop_fps_threshold = 0   # FPS 连续3次低于此值则早停（0为永不早停）
 
 repeats = 3                    # ！！！每参数运行组数量，见"运行组"节
 shuffle_seed = 1017            # 运行组内乱序种子；null = 随机

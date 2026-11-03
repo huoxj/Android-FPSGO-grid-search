@@ -268,6 +268,21 @@ tbody tr.flash { animation: flash 1.4s ease-out 1; }
 
 tr.front-row td:first-child { box-shadow: inset 3px 0 0 var(--series-front); }
 
+/* Early-stopped run: listed, never plotted - muted left rule + tag. */
+tbody tr.early-row td:first-child { box-shadow: inset 3px 0 0 var(--text-muted); }
+
+.tag-early {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: rgba(137, 135, 129, 0.16);
+  color: var(--text-secondary);
+  font-size: 10.5px;
+  font-weight: 600;
+  vertical-align: 1px;
+}
+
 tbody tr.dim { opacity: 0.5; }
 
 .side-foot {

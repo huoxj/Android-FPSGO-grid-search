@@ -328,7 +328,11 @@ function axisCommon(key) {
 function render() {
   const xk = state.x;
   const yk = state.y;
-  const shown = visibleRuns();
+  // Early-stopped runs have no metrics (their trace was deleted): the list
+  // still shows them, the plots and aggregates never do.
+  const inGroup = visibleRuns();
+  const shown = inGroup.filter((r) => !r.early_stopped);
+  const earlyN = inGroup.length - shown.length;
   combos = buildCombos(shown);
   const front = paretoCombos(combos, xk, yk)
     .sort((a, b) => a.mean[xk] - b.mean[xk]);
@@ -491,6 +495,7 @@ function render() {
 
   $("chart-note").textContent =
     `run ${shown.length} 个 · 组合 ${combos.length} 个 · 前沿组合 ${front.length} 个` +
+    (earlyN ? ` · 早停 ${earlyN} 个（不参与绘图）` : "") +
     (hidden ? ` · 当前坐标轴缺少数值隐藏 ${hidden} 个` : "");
   $("chart-foot").textContent =
     "每个点是一个 run；橙点为按相同参数聚合后的组合均值，连线为 Pareto 包络线。" +
@@ -569,8 +574,9 @@ function selectRun(i, { scroll = false } = {}) {
       chart.dispatchAction({ type: "downplay", seriesIndex: S.RUNS, dataIndex: idx });
     }, 1600);
   } else {
-    $("side-foot").textContent =
-      `${run.time} 在当前坐标轴上缺少数值，无法在图中定位。`;
+    $("side-foot").textContent = run.early_stopped
+      ? `${run.time} 是早停 run（trace 已删除），不参与绘图。`
+      : `${run.time} 在当前坐标轴上缺少数值，无法在图中定位。`;
   }
 
   const tr = document.querySelector(`#runs-body tr[data-index="${i}"]`);
@@ -602,11 +608,19 @@ function renderTable() {
     if (q && !hay.includes(q)) return;
     shown += 1;
     const hidden = plotted[i] === -1;
+    const early = Boolean(run.early_stopped);
     const frontRow = state.serverFront.has(comboKey(run.params));
+    const rowCls =
+      `${hidden && !early ? "dim" : ""}${early ? " early-row" : ""}` +
+      `${frontRow ? " front-row" : ""}`;
+    const note = early
+      ? "早停 run：trace 已删除，不参与绘图"
+      : (hidden ? "该 run 在所选坐标轴上缺少数值" : "");
     rows.push(
-      `<tr data-index="${i}" class="${hidden ? "dim" : ""}${frontRow ? " front-row" : ""}"` +
-      `${hidden ? ' title="该 run 在所选坐标轴上缺少数值"' : ""}>` +
-      `<td class="c-time">${esc(run.time)}</td>` +
+      `<tr data-index="${i}" class="${rowCls}"` +
+      `${note ? ` title="${note}"` : ""}>` +
+      `<td class="c-time">${esc(run.time)}` +
+      `${early ? ' <span class="tag-early">早停</span>' : ""}</td>` +
       `<td class="c-params" title="${esc(params)}">${esc(params)}</td>` +
       `<td class="c-num">${fmtMetric(run, "fps_avg")}</td>` +
       `<td class="c-num">${run.power_avg_mw === null ? "—" : fmtNum(run.power_avg_mw, 0)}</td>` +

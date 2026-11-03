@@ -124,21 +124,28 @@ def load_runs(output_dir: str) -> tuple[list[dict], dict, int]:
     }
     runs, skipped = [], 0
     for m in metas:
-        trace = _resolve_trace(m.trace_path, root)
-        if trace is None:
-            print(f"skip missing trace: {m.trace_path}", flush=True)
-            skipped += 1
-            continue
-        met = metrics_for(trace)
-        if not met:
-            skipped += 1
-            continue
+        if m.early_stopped:
+            # Incomplete recording, trace deleted: nothing to analyse, but
+            # the run still belongs in the list.
+            trace, met = None, {}
+        else:
+            trace = _resolve_trace(m.trace_path, root)
+            if trace is None:
+                print(f"skip missing trace: {m.trace_path}", flush=True)
+                skipped += 1
+                continue
+            met = metrics_for(trace)
+            if not met:
+                skipped += 1
+                continue
         runs.append({
             "time": m.time.strftime("%H:%M:%S"),
             "time_iso": m.time.isoformat(),
-            "trace": str(trace),
+            "trace": str(trace) if trace is not None else "",
             "params": m.grid_params,
             "replay_index": m.replay_index,  # None = pre-grouping era (= card 0)
+            "early_stopped": m.early_stopped,
+            "early_stop_fps": m.early_stop_fps,
             "n_frames": met.get("n_frames"),
             "dur_s": met.get("dur_s"),
             "fps_avg": met.get("fps_avg"),
@@ -172,6 +179,8 @@ def _combo_key(params: dict) -> str:
 def load_pareto(output_dir: str) -> dict:
     """Combo-level Pareto front (fps max / power min), via report.py."""
     runs, _, _ = load_runs(output_dir)
+    # Early-stopped runs have no metrics; they must not enter the aggregates.
+    runs = [r for r in runs if not r["early_stopped"]]
     if not runs:
         return {"front": [], "combos": []}
 
