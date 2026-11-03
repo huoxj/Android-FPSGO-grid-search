@@ -10,7 +10,7 @@
 6. 等待 logcat 的 `ApolloHelperCNV5 MSDK OnStatusChangeEvent, currentStatus: 3,statusRet.ThirdCode = 3` 事件作为游戏对局时间轴的 0s 节点
 7. 应用 FPSGO 参数
 8. 等待到时间轴 30s，作为此次 run 分析的开始时刻（不从0s开始，因为刚开局不稳定）
-9. 进行早停检测（每 `early_stop_check_interval` 采样一次 FPS，连续 3 次低于 `early_stop_fps_threshold` 才早停）。早停的 run 会在 meta 中标记 `early_stopped` 并记录 `early_stop_fps` 数组，trace 视为不完整直接删除；结果页仍列出该 run 但标注“早停”，不参与绘图与前沿统计。如果不必早停，就等待到 `config.run_duration` 或 perfetto 录制结束
+9. 进行早停检测（每 `early_stop_check_interval` 采样一次 FPS，连续 3 次低于 `early_stop_fps_threshold` 才早停）。每次 run 都会把检测窗口内的 fpsgo current fps 采样记入 meta 的 `early_stop_fps`（无论是否早停），便于和 trace 的 presented fps 对比；早停的 run 额外标记 `early_stopped`，trace 视为不完整直接删除，结果页仍列出该 run 但标注“早停”，不参与绘图与前沿统计。如果不必早停，就等待到 `config.run_duration` 或 perfetto 录制结束
 10. 到达录制时间，停止录制进程
 11. 退出游戏
 

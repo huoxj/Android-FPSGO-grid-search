@@ -32,6 +32,7 @@ class CheckpointMgr:
         run_start_time: datetime,
         start_temps: dict[str, int] | None = None,
         replay_index: int | None = None,
+        early_stopped: bool = False,
         early_stop_fps: list[int] | None = None,
     ) -> GridRunMeta:
         meta = GridRunMeta(
@@ -40,7 +41,7 @@ class CheckpointMgr:
             time=run_start_time,
             start_temps=start_temps,
             replay_index=replay_index,
-            early_stopped=early_stop_fps is not None,
+            early_stopped=early_stopped,
             early_stop_fps=early_stop_fps,
         )
         meta_path = os.path.join(

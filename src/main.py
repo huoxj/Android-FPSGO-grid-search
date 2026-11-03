@@ -206,13 +206,15 @@ def single_run(
         device_mgr.start_run_init(config.sgame.package_name)
 
         # Game specific run process
-        trace_tmp_path, early_stop_fps = sgame_run(params, replay_index)
+        trace_tmp_path, early_stop_fps, early_stopped = sgame_run(
+            params, replay_index
+        )
 
         # Perfetto stopped. Save run metadata. An early-stopped run has no
         # trace (sgame_run deleted the incomplete one), but its meta still
         # goes to disk so the webui can list it.
         trace_path = ""
-        if early_stop_fps is None:
+        if not early_stopped:
             trace_path = config.output_dir + "/" + trace_tmp_path.name
             shutil.copy(trace_tmp_path, trace_path)
         ckpt_manager.save_run(
@@ -221,6 +223,7 @@ def single_run(
             run_start_time=run_start_time,
             start_temps=start_temps,
             replay_index=replay_index,
+            early_stopped=early_stopped,
             early_stop_fps=early_stop_fps,
         )
     finally:

@@ -12,6 +12,8 @@ class GridRunMeta(BaseModel):
     # Early-stopped run: the trace was incomplete and got deleted, so there
     # is nothing to analyse - keep the meta for the run list only.
     early_stopped: bool = False
-    # fps samples from the early-stop window, oldest first
+    # fpsgo current fps sampled in the early-stop check window (one per
+    # check_interval, oldest first); recorded on every run, so it can be
+    # compared against the trace's presented fps.
     early_stop_fps: list[int] | None = None
 

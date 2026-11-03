@@ -17,16 +17,18 @@ from utils import ui
 # this long means the run really is stalled.
 EARLY_STOP_STREAK = 3
 
-def sgame_run(params: dict, replay_index: int) -> tuple[Path, list[int] | None]:
+def sgame_run(params: dict, replay_index: int) -> tuple[Path, list[int], bool]:
     """Run one measured replay.
 
-    Returns (trace path, early-stop fps samples). The samples are None for a
-    complete run; when not None the trace file is already deleted - the
-    recording was cut mid-window and cannot be analysed.
+    Returns (trace path, fps samples from the early-stop check window, whether
+    the run stopped early). The samples are recorded on every run so the fpsgo
+    current-fps readings can later be compared against the trace's presented
+    fps; the trace is deleted only on an early stop, where it is incomplete.
     """
     conf = get_config()
     run_dur = conf.run_duration
-    early_stop_fps: list[int] | None = None
+    early_stopped = False
+    samples: list[int] = []
     _prepare_resources()
 
     # Cleanly enter replay (replay_index picks the card in the picker grid)
@@ -65,7 +67,6 @@ def sgame_run(params: dict, replay_index: int) -> tuple[Path, list[int] | None]:
         # noise, so stop only after EARLY_STOP_STREAK in a row fall below the
         # threshold (threshold 0 disables it - fps is never below 0).
         low_streak = 0
-        samples: list[int] = []
         while low_streak < EARLY_STOP_STREAK and monotonic() < early_stop_deadline:
             deadline = monotonic() + conf.early_stop_check_interval
             fps = read_fpsgo_fps(conf.sgame.package_name_short)
@@ -74,7 +75,7 @@ def sgame_run(params: dict, replay_index: int) -> tuple[Path, list[int] | None]:
             sleep(max(0, deadline - monotonic()))
 
         if low_streak >= EARLY_STOP_STREAK:
-            early_stop_fps = samples
+            early_stopped = True
             print(f"Fps below {conf.early_stop_fps_threshold} for "
                   f"{EARLY_STOP_STREAK} checks in a row, early stopping")
         else:
@@ -102,10 +103,10 @@ def sgame_run(params: dict, replay_index: int) -> tuple[Path, list[int] | None]:
     _exit_game()
 
     # Incomplete recording: the trace cannot be analysed, so keep nothing.
-    if early_stop_fps is not None:
+    if early_stopped:
         trace_tmp_path.unlink(missing_ok=True)
 
-    return trace_tmp_path, early_stop_fps
+    return trace_tmp_path, samples, early_stopped
 
 
 def _reenter_replay(replay_index: int):
