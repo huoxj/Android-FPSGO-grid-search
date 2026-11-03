@@ -7,9 +7,10 @@ stress-ng matrixprod on 8 cores, screen on: z0 74-81C while z44/z53 stayed
 flat at 44.5/38.9C (the game reaches 65-68 / 47-49 / 43-44C).
 
 One replay is often not enough heat, so the loop restarts the game and
-re-enters the replay after run_duration of playback and keeps going until
-every zone has been ABOVE its ready threshold for 3 consecutive samples
-(10s apart), bounded by warmup_secs.
+re-enters the replay after run_duration/4 of playback at 4x speed (two blind
+taps on the in-fight speed button) and keeps going until every zone has been
+ABOVE its ready threshold for 3 consecutive samples (10s apart), bounded by
+warmup_secs.
 
 No side effects: nothing is written to the device (params belong to measured
 runs) and the game is force-stopped on the way out - also on Ctrl-C or any
@@ -19,10 +20,19 @@ from time import monotonic, sleep
 
 from config import get_config
 import utils.device_utils as du
+from utils import ui
 from sgame import _prepare_resources, _reenter_replay, _exit_game, _sync_timeline_0s
 
 WARMUP_POLL = 10      # seconds between temperature samples
 CONFIRM_SAMPLES = 3   # consecutive above-threshold samples == hot enough
+
+# 4x playback: the speed button only shows once the fight has rolled a bit,
+# its picker then needs one more tap on the 4x entry. Coordinates are the
+# measured ones on the 2720x1224 device, like every other fixed tap.
+PLAYBACK_RATE = 4
+SPEED_MENU_DELAY = 10         # secs of playback before the button is up
+SPEED_BUTTON = (1880, 1150)   # opens the speed picker
+SPEED_4X = (1880, 1090)       # picks 4x
 
 # Play-session limiter ("强制休息" / anti-addiction lockouts) blocks the
 # game for minutes. Retrying on the old 15s*2^n ladder burns attempts
@@ -84,16 +94,23 @@ def warm_and_ready() -> None:
                 # Popups can fake "entered"; playback running is only proven
                 # by the fight-start log needle the measured runs rely on.
                 _sync_timeline_0s()
+                # 4x playback: hotter load and a quarter of the wall time.
+                sleep(SPEED_MENU_DELAY)
+                ui.tap(*SPEED_BUTTON)
+                sleep(1)
+                ui.tap(*SPEED_4X)
             except Exception as e:
                 print(f"warmup: entry failed ({e}); "
                       f"cooling down {LOCKOUT_COOLDOWN}s for lockout")
                 sleep(LOCKOUT_COOLDOWN)
                 continue
 
-            # Watch this replay for one run's worth of playback, then restart
-            # into a fresh one - a single replay is often not enough heat.
+            # Watch this replay for one run's worth of playback at 4x, then
+            # restart into a fresh one - a single replay is often not enough
+            # heat.
+            burn_secs = conf.run_duration / PLAYBACK_RATE
             played = monotonic()
-            while monotonic() - played < conf.run_duration:
+            while monotonic() - played < burn_secs:
                 temps = temps_now()
                 above = above + 1 if above_all(temps) else 0
                 report(temps, monotonic() - t0, above)
@@ -110,7 +127,7 @@ def warm_and_ready() -> None:
                     return
                 sleep(WARMUP_POLL)
 
-            print(f"warmup: replay played {conf.run_duration}s, "
+            print(f"warmup: replay played {burn_secs:.0f}s at {PLAYBACK_RATE}x, "
                   "restarting into a fresh one")
             _exit_game()
     finally:
