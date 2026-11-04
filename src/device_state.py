@@ -1,9 +1,10 @@
 from datetime import datetime
-from time import monotonic, sleep
 
 from config import get_config
+from errors import Kind
 import utils.device_utils as du
 from utils.adb import adb_shell
+from utils.wait import wait_until
 
 # mC. Warmup heats every zone ABOVE its ready threshold; the gate then has to
 # pass as the device coasts down, so it accepts threshold + 0.5C - with the old
@@ -40,39 +41,35 @@ class DeviceMgr:
         return {f"zone{z}": du.read_temp(z) for z in (0, 44, 53)}
 
     def wait_for_charge(self, target: int, max_secs: int) -> None:
-        """Block until the battery gauge reaches target (charger plugged),
-        with the screen off.
+        """Block until the battery gauge reaches target (charger plugged).
 
-        The screen state is otherwise inherited from whatever the previous
-        run left behind (its finally only turns it off when it gets that far),
-        and a lit screen throttles charging.
+        SCREEN OFF is part of the wait, not a side effect: the screen state is
+        otherwise whatever the previous run left behind, and a lit screen
+        throttles charging (a 5V/0.5A port cannot even cover it).
 
         Charging is NOT cut here - the cut happens only right before the
-        run (power.cut_for_measurement). Raises TimeoutError via the
-        retry loop otherwise.
+        run (power.cut_for_measurement). A timeout is a PRECONDITION failure:
+        the environment cannot charge, so retrying the run cannot help.
         """
         du.toggle_screen(False)
-        t0 = monotonic()
-        while True:
+
+        cap = 0
+
+        def charged() -> bool:
+            nonlocal cap
             cap = du.read_capacity()
-            if cap >= target:
-                print(f"Battery at {cap}% (target {target})")
-                return
-            if monotonic() - t0 > max_secs:
-                raise TimeoutError(
-                    f"Battery {cap}% did not reach {target} "
-                    f"within {max_secs}s"
-                )
+            return cap >= target
+
+        def report(elapsed: float) -> None:
             cur = du.read_current_ma()
-            # current <= 0 with the charger plugged in means nothing is going
-            # into the battery: weak supply (PC USB port), a cut that did not
-            # lift, or a thermal stop. Say so on the spot instead of silently
-            # burning charge_wait_max.
             note = " (battery not charging)" if cur <= 0 else ""
             print(f"charging {cap}% -> {target}% "
                   f"current {cur}mA{note} "
-                  f"elapsed {monotonic() - t0:.0f}s")
-            sleep(30)
+                  f"elapsed {elapsed:.0f}s")
+
+        wait_until(f"battery at {target}%", charged, max_secs,
+                   interval=30, on_miss=report, kind=Kind.PRECONDITION)
+        print(f"Battery at {cap}% (target {target})")
 
     def _battery_okay(self) -> bool:
         """

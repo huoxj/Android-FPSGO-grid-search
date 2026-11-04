@@ -8,19 +8,22 @@ the whole-device power. Verified equivalent to physical unplug (residual
 Lifecycle per run:
     wait_for_pe5_drained -> cut -> verify -> <run> -> restore -> recheck
 """
-from time import monotonic, sleep
+from time import sleep
 
+from errors import Kind
 from utils.adb import adb_shell
+from utils.wait import wait_until
 
 EN_POWER_PATH = "/proc/tc_charger_cmd/en_power_path"
 CURRENT_NOW = "/sys/class/power_supply/battery/current_now"
 
-# PE5 fast-charge sessions refuse en_power_path writes; must drain to 0.
-# While draining, writes fail loudly (dmesg spams), so 30s of silence is
-# enough to confirm the session has ended.
+# PE5 fast-charge sessions refuse en_power_path writes, so the cut must wait
+# for the session to end. The driver logs the refusal while a session is live,
+# so a stretch of quiet polls means it is over (4 polls 10s apart ~= the 30s
+# silence window this used to sleep for).
 PE5_WAIT_MAX = 180
-PE5_SETTLE = 30
 PE5_RECHECK_GAP = 10
+PE5_QUIET_POLLS = 4
 
 WRITE_RETRIES = 3
 WRITE_RETRY_GAP = 10
@@ -46,18 +49,17 @@ def _pe5_sessions() -> int:
 
 
 def _wait_for_pe5_drained():
-    t0 = monotonic()
-    while monotonic() - t0 < PE5_WAIT_MAX:
-        if _pe5_sessions() == 0:
-            # dmesg keeps PE5 lines for the session lifetime; a short
-            # silence window guards against a session ending mid-check.
-            sleep(PE5_SETTLE)
-            if _pe5_sessions() == 0:
-                return
-        print(f"PE5 session active, waiting... "
-              f"({monotonic() - t0:.0f}s/{PE5_WAIT_MAX}s)")
-        sleep(PE5_RECHECK_GAP)
-    raise TimeoutError(f"PE5 session did not drain within {PE5_WAIT_MAX}s")
+    wait_until(
+        "PE5 fast-charge session to end",
+        lambda: _pe5_sessions() == 0,
+        PE5_WAIT_MAX,
+        interval=PE5_RECHECK_GAP,
+        consecutive=PE5_QUIET_POLLS,
+        on_miss=lambda elapsed: print(
+            f"PE5 session active, waiting... "
+            f"({elapsed:.0f}s/{PE5_WAIT_MAX}s)"),
+        kind=Kind.TRANSIENT,
+    )
 
 
 def cut_for_measurement():

@@ -1,6 +1,5 @@
 from time import sleep, monotonic
 from pathlib import Path
-from typing import NoReturn
 import subprocess
 import cv2
 import numpy as np
@@ -8,9 +7,11 @@ import queue
 import threading
 
 from config import get_config
+from errors import ConfigError, Kind, TransientError
 from utils.perfetto import start_perfetto_tracing
 from utils.fpsgo import read_fpsgo_fps, apply_params
 from utils.adb import adb_follow, adb_shell
+from utils.wait import wait_until
 from utils import ui
 
 # A single low sample is noise (one jank burst, one popup); only a streak
@@ -198,16 +199,6 @@ def _sync_timeline_0s():
     TARGET_NEEDLE = ("Enter DoBattleStartFightStart")
 
     TIMEOUT_SECS = 60
-    TIMEOUT_MSG = f"Sync replay timeline 0s timeout after {TIMEOUT_SECS}s"
-
-    def _timeout() -> NoReturn:
-        # Distinguish the rest-banner stall from a generic timeout: banner
-        # present -> RestLockout (cooldown + rerun), else dump the stuck frame
-        # and raise a sync timeout (generic retry ladder).
-        if _find("resting") is not None:
-            raise RestLockout()
-        _dump_failure("battle_0s", TIMEOUT_SECS)
-        raise SyncTimeout(TIMEOUT_MSG)
 
     with adb_follow(
         cmd = f"logcat -v monotonic -s {TARGET_TAG}",
@@ -226,21 +217,26 @@ def _sync_timeline_0s():
 
         threading.Thread(target=_reader, daemon=True).start()
 
-        deadline = monotonic() + TIMEOUT_SECS
+        def _seen() -> bool:
+            while True:
+                try:
+                    line = q.get_nowait()
+                except queue.Empty:
+                    return False
+                if TARGET_NEEDLE in line:
+                    return True
 
-        # Follow logcat until target needle. Or timeout exit
-        while True:
-            remaining = deadline - monotonic()
-            if remaining <= 0:
-                _timeout()
-
-            try:
-                line = q.get(timeout=remaining)
-            except queue.Empty:
-                _timeout()
-
-            if TARGET_NEEDLE in line:
-                return
+        try:
+            wait_until("replay timeline 0s", _seen, TIMEOUT_SECS,
+                       interval=0.3, kind=Kind.TRANSIENT)
+        except TransientError:
+            # Distinguish the rest-banner stall from a generic timeout: banner
+            # present -> RestLockout (cooldown + rerun), else dump the stuck
+            # frame and retry the run.
+            if _find("resting") is not None:
+                raise RestLockout()
+            _dump_quietly("battle_0s", TIMEOUT_SECS)
+            raise
 
 def _exit_game():
     # Exit the game completely
@@ -305,16 +301,12 @@ def _prepare_resources():
             raise FileNotFoundError(f"Missing template {name}.png")
         _patterns[name] = (templ, *spec[1:])
 
-class PerfettoConfigError(Exception):
+class PerfettoConfigError(ConfigError):
     """trace 配置非法（perfetto 启动即退出）——重试没有意义。"""
 
 
 class RestLockout(Exception):
     """Health-system rest banner detected; tapping 确定 quits the game."""
-
-
-class SyncTimeout(TimeoutError):
-    """A named entry step never reached its completion state; rerun the run."""
 
 
 def _sync_point(name, ok, timeout, interval=1.0, stable=1, on_wait=None):
@@ -324,22 +316,17 @@ def _sync_point(name, ok, timeout, interval=1.0, stable=1, on_wait=None):
     these, so a stuck run fails at the step that actually stalled instead of
     surfacing as a timeline-sync timeout at the end.
     """
-    deadline = monotonic() + timeout
-    hits = 0
-    while True:
-        if monotonic() > deadline:
-            _dump_failure(name, timeout)
-            raise SyncTimeout(f"{name}: not reached within {timeout}s")
-        if ok():
-            hits += 1
-            if hits >= stable:
-                return
-            continue        # confirm on a fresh frame right away
-        hits = 0
-        print(f"[sync] {name}: miss @ {timeout - (deadline - monotonic()):.1f}s")
+    def miss(elapsed: float) -> None:
+        print(f"[sync] {name}: miss @ {elapsed:.1f}s")
         if on_wait is not None:
             on_wait()
-        sleep(interval)
+
+    try:
+        wait_until(name, ok, timeout, interval=interval, consecutive=stable,
+                   on_miss=miss, kind=Kind.TRANSIENT)
+    except TransientError:
+        _dump_quietly(name, timeout)
+        raise
 
 
 def _dump_failure(name: str, timeout: float):
@@ -361,6 +348,14 @@ def _dump_failure(name: str, timeout: float):
     ]
     print(f"[sync] step '{name}' not reached in {timeout}s; "
           f"visible templates={seen} frame={path}")
+
+
+def _dump_quietly(name: str, timeout: float):
+    """Dump the stuck frame without masking the timeout that asked for it."""
+    try:
+        _dump_failure(name, timeout)
+    except Exception as e:
+        print(f"[sync] cannot dump the failure frame: {e}")
 
 
 class _LogWatch:
@@ -391,23 +386,24 @@ class _LogWatch:
 
     def wait(self, name: str, needle: str, timeout: float, on_wait=None):
         """Block until a *new* line contains `needle`; on timeout dump + raise."""
-        deadline = monotonic() + timeout
-        while True:
-            while self._cursor < len(self._lines):
-                line = self._lines[self._cursor]
-                self._cursor += 1
-                if needle in line:
-                    return
-            if self._p.poll() is not None:
-                # Stream died (bad args, adb drop): never disguise it as a
-                # slow game.
-                raise RuntimeError(f"{name}: logcat stream ended")
-            if monotonic() > deadline:
-                _dump_failure(name, timeout)
-                raise SyncTimeout(f"{name}: '{needle}' not seen in {timeout}s")
-            if on_wait is not None:
-                on_wait()
-            sleep(self.POLL)
+        try:
+            wait_until(f"{name} ('{needle}')", lambda: self._scan(needle),
+                       timeout, interval=self.POLL, on_miss=on_wait,
+                       kind=Kind.TRANSIENT)
+        except TransientError:
+            _dump_quietly(name, timeout)
+            raise
+
+    def _scan(self, needle: str) -> bool:
+        while self._cursor < len(self._lines):
+            line = self._lines[self._cursor]
+            self._cursor += 1
+            if needle in line:
+                return True
+        if self._p.poll() is not None:
+            # Stream died (bad args, adb drop): never disguise it as a slow game.
+            raise TransientError(f"logcat stream died while waiting for {needle}")
+        return False
 
     def close(self):
         if self._p.poll() is None:

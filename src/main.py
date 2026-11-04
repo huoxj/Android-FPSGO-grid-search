@@ -4,6 +4,7 @@ import shutil
 from datetime import datetime
 
 from config import get_config
+from errors import Kind, PreconditionError
 from fpsgo_params_grid import get_grid_samples as get_grid
 from checkpoint import CheckpointMgr
 from device_state import DeviceMgr
@@ -11,6 +12,7 @@ from sgame import sgame_run, RestLockout, PerfettoConfigError
 from power import cut_for_measurement, restore_charging
 from warmup import warm_and_ready
 from utils.adb import AdbOffline, adb_shell
+from utils.wait import wait_until
 # Top-level so PyArmor's dependency scan sees it (a function-level import
 # could be missed and the frozen exe would die on `module webui`).
 from webui.server import serve
@@ -104,6 +106,14 @@ def main():
                 break
             except _NON_RETRYABLE:
                 raise
+            except PreconditionError as e:
+                # The environment cannot satisfy the wait (battery will not
+                # charge, device will not cool). Retrying this combo cannot
+                # help and used to cost hours per attempt, so stop the batch:
+                # the operator fixes the device and restarts, and the
+                # checkpoint resumes where this stopped.
+                print(f"\nStopping the batch: {e}")
+                raise SystemExit(2) from e
             except AdbOffline:
                 # Device gone (USB drop / adbd death): not an attempt,
                 # just wait for it to come back and retry this run.
@@ -183,14 +193,18 @@ def single_run(
         warm_and_ready()
 
     # 3. Ready gate: screen off, all zones below thresholds, twice.
-    #    Charging still on.
-    t0 = monotonic()
-    while not device_mgr.ready_for_start_run():
-        print(
-            f"\rDevice not ready, elapsed: {monotonic() - t0:.2f}s",
-            end="", flush=True
-        )
-        sleep(5)
+    #    Charging still on. Bounded: a device that cannot cool used to spin
+    #    here forever, and retrying cannot fix the environment.
+    wait_until(
+        "device ready to start a run",
+        device_mgr.ready_for_start_run,
+        config.power.ready_wait_max,
+        interval=5,
+        on_miss=lambda elapsed: print(
+            f"\rDevice not ready, elapsed: {elapsed:.0f}s",
+            end="", flush=True),
+        kind=Kind.PRECONDITION,
+    )
     print("\n")
 
     # 4. The only battery-only window: cut the charge path right before

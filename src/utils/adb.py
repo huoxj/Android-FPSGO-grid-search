@@ -2,8 +2,10 @@ from contextlib import contextmanager
 import subprocess
 from time import sleep
 
+from errors import Suspend
 
-class AdbOffline(Exception):
+
+class AdbOffline(Suspend):
     """adb returned nothing - device disconnected / adbd dead."""
 
 

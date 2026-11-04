@@ -64,6 +64,13 @@ class PowerConfig(BaseModel):
         default=7200,
         description="Max seconds to wait for the charge target"
     )
+    # The ready gate waits for the device to cool into the run band while the
+    # charger is still on. Unbounded before; a device that cannot cool (a hot
+    # room, a case, a broken fan) used to stall the batch forever.
+    ready_wait_max: int = Field(
+        default=1800,
+        description="Max seconds to wait for the ready gate before giving up"
+    )
     # Warm-up = play replay card 0 until the thermal plateau is reached;
     # this cap only matters for slow cold starts.
     warmup_secs: int = Field(
