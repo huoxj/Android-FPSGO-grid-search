@@ -399,9 +399,15 @@ class _LogWatch:
     def wait(self, name: str, needle: str, timeout: float, on_wait=None):
         """Block until a *new* line contains `needle`; on timeout dump + raise."""
         try:
-            wait_until(f"{name} ('{needle}')", lambda: self._scan(needle),
-                       timeout, interval=self.POLL, on_miss=on_wait,
-                       kind=Kind.TRANSIENT)
+            wait_until(
+                f"{name} ('{needle}')", lambda: self._scan(needle), timeout,
+                interval=self.POLL,
+                # wait_until hands the callback the elapsed seconds; these
+                # callbacks (popup clearing, rest-banner check) take no
+                # argument and shoot their own frame.
+                on_miss=(lambda elapsed: on_wait()) if on_wait else None,
+                kind=Kind.TRANSIENT,
+            )
         except TransientError:
             _dump_quietly(name, timeout)
             raise
