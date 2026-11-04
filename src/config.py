@@ -37,6 +37,14 @@ class SgameConfig(BaseModel):
         },
     )
 
+    # Vendor thermal policy switched right after timeline 0, before the
+    # fpsgo params (a switch rewrites the cluster frequency ceilings).
+    # Empty string = leave the device policy alone.
+    thermal_policy: str = Field(
+        default="thermal_policy_08.conf",
+        description="thermal_intf policy applied each run; '' = skip"
+    )
+
 # =========== Power measurement ==============
 
 class PowerConfig(BaseModel):

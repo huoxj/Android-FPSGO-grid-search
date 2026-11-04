@@ -12,6 +12,7 @@ from config import get_config
 from errors import ConfigError, Kind, TransientError
 from utils.perfetto import start_perfetto_tracing
 from utils.fpsgo import read_fpsgo_fps, apply_params
+from utils.thermal import apply_policy as apply_thermal_policy
 from utils.adb import adb_follow, adb_shell
 from utils.wait import wait_until
 from utils import ui
@@ -56,6 +57,9 @@ def sgame_run(params: dict, replay_index: int) -> tuple[Path, list[int], bool]:
         # Timeline 0s
         _sync_timeline_0s()
         timeline_30s = monotonic() + 30
+        # Thermal policy first: switching it rewrites the cluster frequency
+        # ceilings, so params applied before the switch would be clobbered.
+        apply_thermal_policy(conf.sgame.thermal_policy)
         # Apply params here, so cfreq wont be overridden by game
         sleep(2)
         apply_params(params, conf.sgame.package_name)
