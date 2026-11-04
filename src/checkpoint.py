@@ -49,6 +49,10 @@ class CheckpointMgr:
         )
         with open(meta_path, "w") as f:
             f.write(meta.model_dump_json(indent=4))
+        # Keep the live list in step with disk: the retry loop asks
+        # searched_count() whether this combo already landed, and a stale list
+        # would rerun a finished run.
+        self.existing_runs.append(meta)
         return meta
 
     def searched_count(self, grid_params: dict) -> int:

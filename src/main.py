@@ -1,14 +1,15 @@
 from time import monotonic, sleep
 import random
 import shutil
+import sys
 from datetime import datetime
 
 from config import get_config
-from errors import Kind, PreconditionError
+from errors import ConfigError, Kind, PreconditionError
 from fpsgo_params_grid import get_grid_samples as get_grid
 from checkpoint import CheckpointMgr
 from device_state import DeviceMgr
-from sgame import sgame_run, RestLockout, PerfettoConfigError
+from sgame import sgame_run, RestLockout
 from power import cut_for_measurement, restore_charging
 from warmup import warm_and_ready
 from utils.adb import AdbOffline, adb_shell
@@ -17,7 +18,8 @@ from utils.wait import wait_until
 # could be missed and the frozen exe would die on `module webui`).
 from webui.server import serve
 
-_NON_RETRYABLE = (FileNotFoundError, KeyError, PerfettoConfigError)
+# Missing templates / malformed config: keep the traceback, it names the file.
+_NON_RETRYABLE = (FileNotFoundError, KeyError)
 
 # Health-system lockout duration + margin
 REST_COOLDOWN_SECS = 15 * 60 + 60
@@ -99,6 +101,15 @@ def main():
         backoff = config.backoff_initial_secs
         while True:
             attempt += 1
+            if attempt > 1 and ckpt_manager.searched_count(params) > g:
+                # The previous attempt recorded the run and then failed on the
+                # way out. Rerunning would duplicate the combo - and after a
+                # resume the duplicate inflates searched_count, which silently
+                # skips a later group of the same combo. Commit, never roll
+                # a finished run back.
+                print(f"[g{g + 1}] run already recorded, not rerunning")
+                completed_runs += 1
+                break
             try:
                 replay_idx = resolve_replay_index(g)
                 single_run(device_mgr, ckpt_manager, params, replay_idx)
@@ -106,6 +117,9 @@ def main():
                 break
             except _NON_RETRYABLE:
                 raise
+            except ConfigError as e:
+                print(f"\nCannot continue: {e}")
+                raise SystemExit(2) from e
             except PreconditionError as e:
                 # The environment cannot satisfy the wait (battery will not
                 # charge, device will not cool). Retrying this combo cannot
@@ -114,11 +128,13 @@ def main():
                 # checkpoint resumes where this stopped.
                 print(f"\nStopping the batch: {e}")
                 raise SystemExit(2) from e
-            except AdbOffline:
-                # Device gone (USB drop / adbd death): not an attempt,
-                # just wait for it to come back and retry this run.
-                print(f"\nDevice offline during run: waiting instead of retrying")
+            except AdbOffline as e:
+                # Device gone (USB drop / adbd death): not an attempt. Wait for
+                # it, then repair what the interrupted run may have left
+                # behind - the retry assumes a clean device.
+                print(f"\nDevice offline ({e}): waiting, then repairing")
                 _wait_for_device()
+                _repair(device_mgr, config)
                 continue
             except RestLockout:
                 # Health-system rest banner: the lockout is minutes-scale
@@ -207,12 +223,14 @@ def single_run(
     )
     print("\n")
 
-    # 4. The only battery-only window: cut the charge path right before
-    #    the run. Raises on failure -> retryable.
-    if config.power.enable:
-        cut_for_measurement()
-
     try:
+        # 4. The only battery-only window: cut the charge path right before the
+        #    run, INSIDE the try. A cut that lands and then fails to verify must
+        #    still reach the teardown, or the path stays cut (kernel state, it
+        #    outlives this process) until someone writes it back by hand.
+        if config.power.enable:
+            cut_for_measurement()
+
         start_temps = device_mgr.read_temps()
         run_start_time = datetime.now()
 
@@ -241,14 +259,51 @@ def single_run(
             early_stop_fps=early_stop_fps,
         )
     finally:
-        # Screen off first: restore's current check is meaningless under a
-        # lit screen (a 5V/0.5A port cannot cover that load) and the screen
-        # must not be left on when restore raises.
+        _teardown(device_mgr, config)
+
+
+def _teardown(device_mgr: DeviceMgr, config) -> None:
+    """Screen off and charge restore, neither depending on the other.
+
+    A charge path left cut keeps the phone from charging until someone writes
+    it back, and a lit screen throttles the next charge wait - so each step
+    runs even when the other one is already failing. Teardown failures are
+    reported, never raised over the exception already on its way out.
+    """
+    in_flight = sys.exc_info()[0] is not None
+    errors: list[Exception] = []
+    try:
         device_mgr.finish_run_cleanup()
-        if config.power.enable:
-            # Restore even when the run failed; a failure to restore raises
-            # so the retry loop's cut_for_measurement sees a known state.
+    except Exception as e:
+        errors.append(e)
+    if config.power.enable:
+        try:
             restore_charging()
+        except Exception as e:
+            errors.append(e)
+    for e in errors:
+        print(f"warn: teardown step failed: {e}")
+    if errors and not in_flight:
+        raise errors[0]
+
+
+def _repair(device_mgr: DeviceMgr, config) -> None:
+    """Re-establish what a dropped device leaves broken between attempts.
+
+    An adb drop in the middle of a run can leave the charge path cut, the
+    screen lit and the game running. The retry assumes a clean device, so put
+    it back before retrying. Best effort: the retry's own waits will complain
+    if the repair did not take.
+    """
+    try:
+        device_mgr.finish_run_cleanup()
+    except Exception as e:
+        print(f"warn: repair could not turn the screen off: {e}")
+    if config.power.enable:
+        try:
+            restore_charging()
+        except Exception as e:
+            print(f"warn: repair could not restore charging: {e}")
 
 if __name__ == "__main__":
     main()
