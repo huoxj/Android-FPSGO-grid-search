@@ -82,16 +82,26 @@ def cut_for_measurement():
 
 
 def restore_charging():
-    """Restore charging; raises if the HAL refuses."""
+    """Restore charging; raises if the battery still is not taking current.
+
+    Runs with the screen off (main turns it off before calling this): a lit
+    screen draws more than a 5V/0.5A port supplies, so the battery current
+    stays <= 0 and a restored path looks like a failure.
+    """
     for attempt in range(1, WRITE_RETRIES + 1):
         adb_shell(f"echo 1 > {EN_POWER_PATH}")
         sleep(2)
-        if _read_int(CURRENT_NOW) > 0:
-            print("Charging restored")
+        cur = _read_int(CURRENT_NOW)
+        if cur > CUT_VERIFY_CURRENT_MAX:
+            print(f"Charging restored: current_now = {round(cur / 1000)}mA")
             return
-        print(f"Restore attempt {attempt}/{WRITE_RETRIES} failed")
+        print(f"Restore attempt {attempt}/{WRITE_RETRIES} failed: "
+              f"current_now = {round(cur / 1000)}mA")
         sleep(WRITE_RETRY_GAP)
-    raise RuntimeError("Failed to restore charging - check the device")
+    raise RuntimeError(
+        "Failed to restore charging - battery current stays <= 0; "
+        "check the charger/port (a weak 5V port cannot cover the device)"
+    )
 
 
 def recheck_cut_state() -> bool:

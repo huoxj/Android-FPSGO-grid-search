@@ -227,12 +227,14 @@ def single_run(
             early_stop_fps=early_stop_fps,
         )
     finally:
+        # Screen off first: restore's current check is meaningless under a
+        # lit screen (a 5V/0.5A port cannot cover that load) and the screen
+        # must not be left on when restore raises.
+        device_mgr.finish_run_cleanup()
         if config.power.enable:
             # Restore even when the run failed; a failure to restore raises
             # so the retry loop's cut_for_measurement sees a known state.
             restore_charging()
-        # Post-run cleanup
-        device_mgr.finish_run_cleanup()
 
 if __name__ == "__main__":
     main()

@@ -2,6 +2,7 @@ from utils.adb import adb_shell
 
 _THERMAL_ZONE_PATH = "/sys/class/thermal/thermal_zone{}/temp"
 _BATTERY_CAPACITY = "/sys/class/power_supply/battery/capacity"
+_BATTERY_CURRENT = "/sys/class/power_supply/battery/current_now"
 
 def toggle_screen(on: bool = True):
     event = "KEYCODE_WAKEUP" if on else "KEYCODE_SLEEP"
@@ -28,6 +29,11 @@ def read_temp(thermal_zone: int) -> int:
 def read_capacity() -> int:
     # Battery gauge percent
     return int(adb_shell(f"cat {_BATTERY_CAPACITY}"))
+
+
+def read_current_ma() -> int:
+    """Battery-side current in mA. Positive = charging, negative = discharging."""
+    return round(int(adb_shell(f"cat {_BATTERY_CURRENT}")) / 1000)
 
 def get_tgid(package_name: str) -> str:
     tgid = adb_shell(f"pidof {package_name}").strip()

@@ -40,12 +40,18 @@ class DeviceMgr:
         return {f"zone{z}": du.read_temp(z) for z in (0, 44, 53)}
 
     def wait_for_charge(self, target: int, max_secs: int) -> None:
-        """Block until the battery gauge reaches target (charger plugged).
+        """Block until the battery gauge reaches target (charger plugged),
+        with the screen off.
+
+        The screen state is otherwise inherited from whatever the previous
+        run left behind (its finally only turns it off when it gets that far),
+        and a lit screen throttles charging.
 
         Charging is NOT cut here - the cut happens only right before the
         run (power.cut_for_measurement). Raises TimeoutError via the
         retry loop otherwise.
         """
+        du.toggle_screen(False)
         t0 = monotonic()
         while True:
             cap = du.read_capacity()
@@ -57,7 +63,14 @@ class DeviceMgr:
                     f"Battery {cap}% did not reach {target} "
                     f"within {max_secs}s"
                 )
+            cur = du.read_current_ma()
+            # current <= 0 with the charger plugged in means nothing is going
+            # into the battery: weak supply (PC USB port), a cut that did not
+            # lift, or a thermal stop. Say so on the spot instead of silently
+            # burning charge_wait_max.
+            note = " (battery not charging)" if cur <= 0 else ""
             print(f"charging {cap}% -> {target}% "
+                  f"current {cur}mA{note} "
                   f"elapsed {monotonic() - t0:.0f}s")
             sleep(30)
 
