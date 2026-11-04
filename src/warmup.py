@@ -22,12 +22,16 @@ screen lit makes the ready gate cool a lit, charging device and throttles the
 next charge wait.
 """
 from time import monotonic, sleep
+import logging
 
 from config import get_config
 from errors import TransientError
 import utils.device_utils as du
 from utils import ui
+from utils.log import STATUS_LOG_EVERY, status
 from sgame import _prepare_resources, _reenter_replay, _exit_game, _sync_timeline_0s
+
+log = logging.getLogger(__name__)
 
 WARMUP_POLL = 10      # seconds between temperature samples
 CONFIRM_SAMPLES = 3   # consecutive above-threshold samples == hot enough
@@ -84,33 +88,37 @@ def _burn(conf) -> None:
         return all(temps[z] > t for z, t in thresholds.items())
 
     def report(temps: dict[int, int], elapsed: float, above: int) -> None:
-        print(
+        nonlocal last_logged
+        line = (
             "warmup "
             + " ".join(
                 f"z{z}={temps[z] / 1000:.1f}/{t / 1000:.1f}C"
                 for z, t in sorted(thresholds.items())
             )
-            + f" elapsed {elapsed:.0f}s above={above}/{CONFIRM_SAMPLES}"
+            + f" above={above}/{CONFIRM_SAMPLES} {elapsed:.0f}s"
         )
+        status(line)
+        if elapsed - last_logged >= STATUS_LOG_EVERY:
+            last_logged = elapsed
+            log.info("%s", line)
 
     # Fast path: back-to-back runs still sit on the plateau - no replay needed
     temps = temps_now()
     if above_all(temps):
-        print(
-            "warmup: already hot enough, skipping replay "
-            + " ".join(f"z{z}={temps[z] / 1000:.1f}C" for z in sorted(temps))
-        )
+        log.info("warmup: already hot enough, skipping replay %s",
+                 " ".join(f"z{z}={temps[z] / 1000:.1f}C" for z in sorted(temps)))
         return
 
     _prepare_resources()
     t0 = monotonic()
     above = 0
     entry_failures = 0
+    last_logged = -STATUS_LOG_EVERY    # log the first sample as well
     while True:
         elapsed = monotonic() - t0
         if elapsed >= conf.power.warmup_secs:
-            print(f"warmup: cap {conf.power.warmup_secs}s hit (entry), "
-                  "releasing to the ready gate")
+            log.info("warmup: cap %ds hit (before an entry), "
+                     "releasing to the ready gate", conf.power.warmup_secs)
             return
         if entry_failures >= MAX_ENTRY_FAILURES:
             raise TransientError(
@@ -134,8 +142,8 @@ def _burn(conf) -> None:
             entry_failures += 1
             wait = min(LOCKOUT_COOLDOWN,
                        max(0, conf.power.warmup_secs - elapsed))
-            print(f"warmup: entry failed ({e}); "
-                  f"cooling down {wait:.0f}s for lockout")
+            log.warning("warmup: entry failed (%s); cooling down %.0fs "
+                        "for a possible lockout", e, wait)
             sleep(wait)
             continue
 
@@ -149,18 +157,16 @@ def _burn(conf) -> None:
             above = above + 1 if above_all(temps) else 0
             report(temps, monotonic() - t0, above)
             if above >= CONFIRM_SAMPLES:
-                print(f"warmup: hot enough after {monotonic() - t0:.0f}s")
+                log.info("warmup: hot enough after %.0fs", monotonic() - t0)
                 return
             if monotonic() - t0 >= conf.power.warmup_secs:
-                print(
-                    f"warmup: cap {conf.power.warmup_secs}s hit, "
-                    "releasing to the ready gate "
-                    + " ".join(f"z{z}={temps[z] / 1000:.1f}C"
-                               for z in sorted(temps))
-                )
+                log.info("warmup: cap %ds hit, releasing to the ready gate %s",
+                         conf.power.warmup_secs,
+                         " ".join(f"z{z}={temps[z] / 1000:.1f}C"
+                                  for z in sorted(temps)))
                 return
             sleep(WARMUP_POLL)
 
-        print(f"warmup: replay played {burn_secs:.0f}s at {PLAYBACK_RATE}x, "
-              "restarting into a fresh one")
+        log.info("warmup: replay played %.0fs at %dx, "
+                 "restarting into a fresh one", burn_secs, PLAYBACK_RATE)
         _exit_game()

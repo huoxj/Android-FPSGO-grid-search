@@ -1,6 +1,10 @@
 
+import logging
+
 from utils.adb import adb_shell
 from models.fpsgo_params import FpsgoParams
+
+log = logging.getLogger(__name__)
 
 _FPSGO_STATUS = "/sys/kernel/fpsgo/fstb/fpsgo_status"
 
@@ -21,7 +25,7 @@ def apply_params(params: dict, package_name: str, check=True):
         # print only mismatches
         bad = {f: (exp[f], got[f]) for f in exp if exp[f] != got[f]}
         for f, (w, r) in bad.items():
-            print(f"apply mismatch {f}: set={w} read={r}")
+            log.warning("apply mismatch %s: set=%s read=%s", f, w, r)
         if bad:
             raise RuntimeError(
                 f"apply check failed ({len(bad)} fields): {', '.join(bad)}"

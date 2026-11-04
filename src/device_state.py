@@ -1,10 +1,14 @@
 from datetime import datetime
+import logging
 
 from config import get_config
 from errors import Kind
 import utils.device_utils as du
 from utils.adb import adb_shell
+from utils.log import STATUS_LOG_EVERY, status
 from utils.wait import wait_until
+
+log = logging.getLogger(__name__)
 
 # mC. Warmup heats every zone ABOVE its ready threshold; the gate then has to
 # pass as the device coasts down, so it accepts threshold + 0.5C - with the old
@@ -54,6 +58,9 @@ class DeviceMgr:
         du.toggle_screen(False)
 
         cap = 0
+        # Negative start so the first tick is logged too: on a fast charge the
+        # whole wait can be shorter than the status-log interval.
+        last_logged = -STATUS_LOG_EVERY
 
         def charged() -> bool:
             nonlocal cap
@@ -61,15 +68,21 @@ class DeviceMgr:
             return cap >= target
 
         def report(elapsed: float) -> None:
+            nonlocal last_logged
             cur = du.read_current_ma()
-            note = " (battery not charging)" if cur <= 0 else ""
-            print(f"charging {cap}% -> {target}% "
-                  f"current {cur}mA{note} "
-                  f"elapsed {elapsed:.0f}s")
+            note = " (not charging)" if cur <= 0 else ""
+            line = (f"charge {cap}% -> {target}%  {cur}mA{note}"
+                    f"  {elapsed:.0f}s")
+            status(line)
+            # One line every STATUS_LOG_EVERY seconds so a saved log still
+            # shows what the wait was doing; the status line is the live view.
+            if elapsed - last_logged >= STATUS_LOG_EVERY:
+                last_logged = elapsed
+                log.info("%s", line)
 
         wait_until(f"battery at {target}%", charged, max_secs,
                    interval=30, on_miss=report, kind=Kind.PRECONDITION)
-        print(f"Battery at {cap}% (target {target})")
+        log.info("battery at %d%% (target %d)", cap, target)
 
     def _battery_okay(self) -> bool:
         """

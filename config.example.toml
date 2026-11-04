@@ -1,4 +1,6 @@
 output_dir = "gs/test"
+# INFO default; DEBUG adds every screen-sync poll (very chatty)
+log_level = "INFO"
 
 run_duration = 600
 run_max_attempts = 8

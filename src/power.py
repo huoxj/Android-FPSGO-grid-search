@@ -9,10 +9,14 @@ Lifecycle per run:
     wait_for_pe5_drained -> cut -> verify -> <run> -> restore -> recheck
 """
 from time import sleep
+import logging
 
 from errors import Kind
 from utils.adb import adb_shell
+from utils.log import status
 from utils.wait import wait_until
+
+log = logging.getLogger(__name__)
 
 EN_POWER_PATH = "/proc/tc_charger_cmd/en_power_path"
 CURRENT_NOW = "/sys/class/power_supply/battery/current_now"
@@ -55,9 +59,9 @@ def _wait_for_pe5_drained():
         PE5_WAIT_MAX,
         interval=PE5_RECHECK_GAP,
         consecutive=PE5_QUIET_POLLS,
-        on_miss=lambda elapsed: print(
-            f"PE5 session active, waiting... "
-            f"({elapsed:.0f}s/{PE5_WAIT_MAX}s)"),
+        on_miss=lambda elapsed: status(
+            f"waiting for the PE5 session to end... "
+            f"{elapsed:.0f}s/{PE5_WAIT_MAX}s"),
         kind=Kind.TRANSIENT,
     )
 
@@ -70,12 +74,12 @@ def cut_for_measurement():
         sleep(CUT_VERIFY_SETTLE)
         cur = _read_int(CURRENT_NOW)
         if cur <= CUT_VERIFY_CURRENT_MAX:
-            print(f"Charge cut verified: current_now = {cur}")
+            log.info("charge cut verified: current_now = %dmA",
+                     round(cur / 1000))
             return
-        print(
-            f"Cut attempt {attempt}/{WRITE_RETRIES} failed: "
-            f"current_now = {cur} (not discharging)"
-        )
+        log.warning("cut attempt %d/%d failed: current_now = %dmA "
+                    "(still charging)", attempt, WRITE_RETRIES,
+                    round(cur / 1000))
         sleep(WRITE_RETRY_GAP)
     raise RuntimeError(
         f"Charge cut failed after {WRITE_RETRIES} attempts; "
@@ -95,10 +99,11 @@ def restore_charging():
         sleep(2)
         cur = _read_int(CURRENT_NOW)
         if cur > CUT_VERIFY_CURRENT_MAX:
-            print(f"Charging restored: current_now = {round(cur / 1000)}mA")
+            log.info("charging restored: current_now = %dmA",
+                     round(cur / 1000))
             return
-        print(f"Restore attempt {attempt}/{WRITE_RETRIES} failed: "
-              f"current_now = {round(cur / 1000)}mA")
+        log.warning("restore attempt %d/%d failed: current_now = %dmA",
+                    attempt, WRITE_RETRIES, round(cur / 1000))
         sleep(WRITE_RETRY_GAP)
     raise RuntimeError(
         "Failed to restore charging - battery current stays <= 0; "

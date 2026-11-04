@@ -1,8 +1,11 @@
+import logging
 import os
 import pathlib
 from datetime import datetime
 
 from models.grid import GridRunMeta
+
+log = logging.getLogger(__name__)
 
 class CheckpointMgr:
 
@@ -21,7 +24,7 @@ class CheckpointMgr:
                     pathlib.Path(path, file).read_text()
                 )
             except Exception as e:
-                print(f"Failed to load {file}: {e}")
+                log.warning("failed to load %s: %s", file, e)
                 continue
             self.existing_runs.append(meta)
 

@@ -1,5 +1,6 @@
 from time import sleep, monotonic
 from pathlib import Path
+import logging
 import subprocess
 import cv2
 import numpy as np
@@ -13,6 +14,8 @@ from utils.fpsgo import read_fpsgo_fps, apply_params
 from utils.adb import adb_follow, adb_shell
 from utils.wait import wait_until
 from utils import ui
+
+log = logging.getLogger(__name__)
 
 # A single low sample is noise (one jank burst, one popup); only a streak
 # this long means the run really is stalled.
@@ -77,13 +80,13 @@ def sgame_run(params: dict, replay_index: int) -> tuple[Path, list[int], bool]:
 
         if low_streak >= EARLY_STOP_STREAK:
             early_stopped = True
-            print(f"Fps below {conf.early_stop_fps_threshold} for "
-                  f"{EARLY_STOP_STREAK} checks in a row, early stopping")
+            log.warning("fps below %d for %d checks in a row, early stopping",
+                        conf.early_stop_fps_threshold, EARLY_STOP_STREAK)
         else:
             # Dont stop! Sleep and wait until perfetto stops
             sleep(perfetto_expected_deadline - monotonic() + 5)
             if proc.poll() is not None:
-                print("Warn: Perfetto tracing stopped earlier than record dur")
+                log.warning("perfetto stopped earlier than the record duration")
     except Exception:
         trace_tmp_path.unlink(missing_ok=True)
         raise
@@ -153,7 +156,7 @@ def _reenter_replay(replay_index: int):
             for name in ["back_arrow", "close_x", "promo_close"]:
                 loc = ui.find(img, _patterns[name])
                 if loc is not None:
-                    print(f"[sync] close {name} @ {loc}")
+                    log.debug("[sync] close %s @ %s", name, loc)
                     ui.tap(*loc)
                     return
 
@@ -288,7 +291,7 @@ def _tap_replay_card(index: int):
             f"replay index {index} needs row {row}; only 2 rows visible "
             "without scrolling (repeat <= 12)"
         )
-    print(f"tapping replay card {index} at ({x}, {y})")
+    log.debug("tapping replay card %d at (%d, %d)", index, x, y)
     ui.tap(x, y)
 
 def _prepare_resources():
@@ -317,7 +320,7 @@ def _sync_point(name, ok, timeout, interval=1.0, stable=1, on_wait=None):
     surfacing as a timeline-sync timeout at the end.
     """
     def miss(elapsed: float) -> None:
-        print(f"[sync] {name}: miss @ {elapsed:.1f}s")
+        log.debug("[sync] %s: miss @ %.1fs", name, elapsed)
         if on_wait is not None:
             on_wait()
 
@@ -346,8 +349,8 @@ def _dump_failure(name: str, timeout: float):
         n for n, spec in _patterns.items()
         if spec[0].size and ui.find(img, spec) is not None
     ]
-    print(f"[sync] step '{name}' not reached in {timeout}s; "
-          f"visible templates={seen} frame={path}")
+    log.warning("[sync] step '%s' not reached in %ss; visible templates=%s "
+                "frame=%s", name, timeout, seen, path)
 
 
 def _dump_quietly(name: str, timeout: float):
@@ -355,7 +358,7 @@ def _dump_quietly(name: str, timeout: float):
     try:
         _dump_failure(name, timeout)
     except Exception as e:
-        print(f"[sync] cannot dump the failure frame: {e}")
+        log.warning("[sync] cannot dump the failure frame: %s", e)
 
 
 class _LogWatch:

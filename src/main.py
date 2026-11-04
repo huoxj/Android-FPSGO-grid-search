@@ -1,8 +1,10 @@
 from time import monotonic, sleep
+import logging
 import random
 import shutil
 import sys
 from datetime import datetime
+from pathlib import Path
 
 from config import get_config
 from errors import ConfigError, Kind, PreconditionError
@@ -13,10 +15,13 @@ from sgame import sgame_run, RestLockout
 from power import cut_for_measurement, restore_charging
 from warmup import warm_and_ready
 from utils.adb import AdbOffline, adb_shell
+from utils.log import setup as setup_logging, stage, status
 from utils.wait import wait_until
 # Top-level so PyArmor's dependency scan sees it (a function-level import
 # could be missed and the frozen exe would die on `module webui`).
 from webui.server import serve
+
+log = logging.getLogger(__name__)
 
 # Missing templates / malformed config: keep the traceback, it names the file.
 _NON_RETRYABLE = (FileNotFoundError, KeyError)
@@ -32,12 +37,14 @@ def _wait_for_device():
     while True:
         try:
             adb_shell("echo ok")
-            print(f"\nDevice back online after {monotonic() - t0:.0f}s")
+            log.info("device back online after %.0fs", monotonic() - t0)
             return
         except AdbOffline:
-            print(f"\rDevice offline, waiting... "
-                  f"{monotonic() - t0:.0f}s", end="", flush=True)
+            status(f"device offline, waiting... {monotonic() - t0:.0f}s")
             sleep(15)
+
+def _fmt_params(params: dict) -> str:
+    return " ".join(f"{k}={v}" for k, v in params.items())
 
 def build_run_queue(grid: list[dict], repeats: int, seed: int) -> list[dict]:
     # Run order = `repeats` groups, each group being the whole grid
@@ -61,38 +68,47 @@ def main():
     config = get_config()
 
     grid = get_grid()
+
+    # Logging first: checkpoint loading warnings should use the same format.
+    log_file = Path(config.output_dir) / "grid_search.log"
+    Path(config.output_dir).mkdir(parents=True, exist_ok=True)
+    setup_logging(config.log_level, str(log_file))
+
     ckpt_manager = CheckpointMgr(config.output_dir)
     device_mgr = DeviceMgr()
 
-    # None = random: draw a fresh seed and print it, so a random run's
+    # None = random: draw a fresh seed and log it, so a random run's
     # order can be reproduced afterwards with shuffle_seed.
     seed = config.shuffle_seed
     if seed is None:
         seed = random.randrange(2**32)
-    print("Shuffle seed:", seed)
 
     run_queue = build_run_queue(grid, config.repeats, seed)
 
-    print("Total grid size:", len(grid))
-    print("Existing runs:", ckpt_manager.existing_runs_num())
-    print("Total runs:", len(run_queue))
+    log.info("%d combos x %d groups = %d runs (shuffle seed %d)",
+             len(grid), config.repeats, len(run_queue), seed)
+    log.info("output %s | existing runs %d | log %s",
+             config.output_dir, ckpt_manager.existing_runs_num(), log_file)
+    log.info("per run: %ds, charge to %d%%, warmup %s, charge cut %s",
+             config.run_duration, config.power.charge_target,
+             "on" if config.power.warmup else "off",
+             "on" if config.power.enable else "off")
 
     completed_runs = 0
     skipped_runs = 0
     for i, item in enumerate(run_queue):
         params = item["params"]
         g = item["group"]
-        print(f"[g{g + 1}/{config.repeats}] [{i}/{len(run_queue)}] {params}")
+        log.info("[g%d/%d] [%d/%d] %s", g + 1, config.repeats, i,
+                 len(run_queue), _fmt_params(params))
 
         # Occurrence index is the group index: with k existing runs, the
         # occurrences in groups 0..k-1 are already covered and skipped;
         # later groups still run.
         searched = ckpt_manager.searched_count(params)
         if g < searched:
-            print(
-                f"[g{g + 1}/{config.repeats}] skip combo "
-                f"(already ran {searched}/{config.repeats})"
-            )
+            log.info("[g%d/%d] skip combo (already ran %d/%d)",
+                     g + 1, config.repeats, searched, config.repeats)
             skipped_runs += 1
             continue
 
@@ -107,7 +123,7 @@ def main():
                 # resume the duplicate inflates searched_count, which silently
                 # skips a later group of the same combo. Commit, never roll
                 # a finished run back.
-                print(f"[g{g + 1}] run already recorded, not rerunning")
+                log.info("[g%d] run already recorded, not rerunning", g + 1)
                 completed_runs += 1
                 break
             try:
@@ -118,7 +134,7 @@ def main():
             except _NON_RETRYABLE:
                 raise
             except ConfigError as e:
-                print(f"\nCannot continue: {e}")
+                log.error("cannot continue: %s", e)
                 raise SystemExit(2) from e
             except PreconditionError as e:
                 # The environment cannot satisfy the wait (battery will not
@@ -126,13 +142,13 @@ def main():
                 # help and used to cost hours per attempt, so stop the batch:
                 # the operator fixes the device and restarts, and the
                 # checkpoint resumes where this stopped.
-                print(f"\nStopping the batch: {e}")
+                log.error("stopping the batch: %s", e)
                 raise SystemExit(2) from e
             except AdbOffline as e:
                 # Device gone (USB drop / adbd death): not an attempt. Wait for
                 # it, then repair what the interrupted run may have left
                 # behind - the retry assumes a clean device.
-                print(f"\nDevice offline ({e}): waiting, then repairing")
+                log.warning("device offline (%s): waiting, then repairing", e)
                 _wait_for_device()
                 _repair(device_mgr, config)
                 continue
@@ -140,35 +156,28 @@ def main():
                 # Health-system rest banner: the lockout is minutes-scale
                 # and retrying faster is pointless. Not an attempt - wait
                 # it out, then rerun this run from scratch.
-                print(f"\nRest lockout detected: cooling down "
-                      f"{REST_COOLDOWN_SECS}s, then rerunning this run")
+                log.warning("rest lockout: cooling down %ds, then rerunning",
+                            REST_COOLDOWN_SECS)
                 sleep(REST_COOLDOWN_SECS)
                 continue
             except Exception as e:
                 # Backoff retry
                 if attempt >= config.run_max_attempts:
-                    print(f"Run failed after {attempt} attempts: {e}")
+                    log.error("run failed after %d attempts: %s", attempt, e)
                     skipped_runs += 1
                     break
-                print(
-                    f"Run attempt {attempt}/{config.run_max_attempts} "
-                    f"failed: {e}.\n"
-                    f"Retrying in {backoff}s..."
-                )
+                log.warning("run attempt %d/%d failed: %s (retry in %ds)",
+                            attempt, config.run_max_attempts, e, backoff)
                 sleep(backoff)
                 backoff *= 2
 
-    print("Grid search finish. "
-          "Runs completed/skipped/total "
-          f"{completed_runs}/{skipped_runs}/{len(run_queue)}"
-    )
+    log.info("batch finished: completed %d, skipped %d, total %d",
+             completed_runs, skipped_runs, len(run_queue))
 
     # Launch the result UI in-process and block on it, so the console stays
     # alive until the operator closes the browser tab / Ctrl-C. (In the
     # PyInstaller build sys.executable is the exe itself, so spawning
     # `python -m src.webui` would re-run the whole search.)
-    from pathlib import Path
-
     serve(str(Path(config.output_dir).resolve()), config.webui_port)
 
 def resolve_replay_index(group: int) -> int:
@@ -178,9 +187,9 @@ def resolve_replay_index(group: int) -> int:
     different replays (scenario robustness) instead of repeating one.
     'fixed' mode: always the configured index.
     """
-    idx = (get_config().replay_index
-           if get_config().replay_index_mode == "fixed" else group)
-    print(f"-> replay card {idx} (mode={get_config().replay_index_mode})")
+    mode = get_config().replay_index_mode
+    idx = get_config().replay_index if mode == "fixed" else group
+    log.info("replay card %d (mode=%s)", idx, mode)
     return idx
 
 def single_run(
@@ -195,33 +204,36 @@ def single_run(
     #    a full battery also gives every run the same headroom). The charge
     #    stays ON through warmup and the ready wait - only the RUN is
     #    measured battery-only.
+    stage("charge")
     device_mgr.wait_for_charge(
         config.power.charge_target, config.power.charge_wait_max
     )
 
     # 2. Warm-up burn (screen on at full brightness inside warm_and_ready):
     #    burn the device into the hot band, then coast down through the
-    #    ready thresholds; the ready gate below passes right after.
-    #    TimeoutError (burn budget exhausted) is retryable: the burn
-    #    resumes from the already-warm state. Charging continues meanwhile
-    #    (topping off what the burn draws).
+    #    ready thresholds; the ready gate below passes right after. A timeout
+    #    (burn budget exhausted) is retryable: the burn resumes from the
+    #    already-warm state. Charging continues meanwhile (topping off what
+    #    the burn draws).
     if config.power.warmup:
+        stage("warmup")
         warm_and_ready()
 
     # 3. Ready gate: screen off, all zones below thresholds, twice.
     #    Charging still on. Bounded: a device that cannot cool used to spin
     #    here forever, and retrying cannot fix the environment.
+    stage("ready")
     wait_until(
         "device ready to start a run",
         device_mgr.ready_for_start_run,
         config.power.ready_wait_max,
         interval=5,
-        on_miss=lambda elapsed: print(
-            f"\rDevice not ready, elapsed: {elapsed:.0f}s",
-            end="", flush=True),
+        on_miss=lambda elapsed: status(
+            f"cooling for the ready gate... {elapsed:.0f}s/"
+            f"{config.power.ready_wait_max}s"),
         kind=Kind.PRECONDITION,
     )
-    print("\n")
+    log.info("device ready")
 
     try:
         # 4. The only battery-only window: cut the charge path right before the
@@ -229,13 +241,16 @@ def single_run(
         #    still reach the teardown, or the path stays cut (kernel state, it
         #    outlives this process) until someone writes it back by hand.
         if config.power.enable:
+            stage("cut")
             cut_for_measurement()
 
         start_temps = device_mgr.read_temps()
         run_start_time = datetime.now()
 
         # Pre-run check and init
+        stage("run")
         device_mgr.start_run_init(config.sgame.package_name)
+        log.info("start temps %s", start_temps)
 
         # Game specific run process
         trace_tmp_path, early_stop_fps, early_stopped = sgame_run(
@@ -258,7 +273,10 @@ def single_run(
             early_stopped=early_stopped,
             early_stop_fps=early_stop_fps,
         )
+        log.info("run saved: %s%s", run_start_time.strftime("%Y%m%d_%H%M%S"),
+                 " (early stop, trace dropped)" if early_stopped else "")
     finally:
+        stage("teardown")
         _teardown(device_mgr, config)
 
 
@@ -268,7 +286,7 @@ def _teardown(device_mgr: DeviceMgr, config) -> None:
     A charge path left cut keeps the phone from charging until someone writes
     it back, and a lit screen throttles the next charge wait - so each step
     runs even when the other one is already failing. Teardown failures are
-    reported, never raised over the exception already on its way out.
+    logged, never raised over the exception already on its way out.
     """
     in_flight = sys.exc_info()[0] is not None
     errors: list[Exception] = []
@@ -282,7 +300,7 @@ def _teardown(device_mgr: DeviceMgr, config) -> None:
         except Exception as e:
             errors.append(e)
     for e in errors:
-        print(f"warn: teardown step failed: {e}")
+        log.warning("teardown step failed: %s", e)
     if errors and not in_flight:
         raise errors[0]
 
@@ -298,13 +316,12 @@ def _repair(device_mgr: DeviceMgr, config) -> None:
     try:
         device_mgr.finish_run_cleanup()
     except Exception as e:
-        print(f"warn: repair could not turn the screen off: {e}")
+        log.warning("repair could not turn the screen off: %s", e)
     if config.power.enable:
         try:
             restore_charging()
         except Exception as e:
-            print(f"warn: repair could not restore charging: {e}")
+            log.warning("repair could not restore charging: %s", e)
 
 if __name__ == "__main__":
     main()
-

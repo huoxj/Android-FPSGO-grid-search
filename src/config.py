@@ -87,6 +87,11 @@ class Config(BaseSettings):
         description="Output directory for traces and metadata"
     )
 
+    log_level: str = Field(
+        default="INFO",
+        description="Log level for console and file (DEBUG shows every screen-sync miss)"
+    )
+
     # Port of the result UI that launches automatically when a batch ends.
     webui_port: int = Field(
         default=8787, ge=1, le=65535,
