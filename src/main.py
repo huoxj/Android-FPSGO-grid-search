@@ -12,7 +12,7 @@ from fpsgo_params_grid import get_grid_samples as get_grid
 from checkpoint import CheckpointMgr
 from device_state import DeviceMgr
 from sgame import sgame_run, RestLockout
-from power import cut_for_measurement, restore_charging
+from power import CutWatch, cut_for_measurement, restore_charging
 from warmup import warm_and_ready
 from utils.adb import AdbOffline, adb_shell
 from utils.log import setup as setup_logging, stage, status
@@ -235,6 +235,7 @@ def single_run(
     )
     log.info("device ready")
 
+    cut_watch: CutWatch | None = None
     try:
         # 4. The only battery-only window: cut the charge path right before the
         #    run, INSIDE the try. A cut that lands and then fails to verify must
@@ -243,6 +244,10 @@ def single_run(
         if config.power.enable:
             stage("cut")
             cut_for_measurement()
+            # The cut is not sticky (the ODM re-opens the path on its own), so
+            # nothing else keeps the run battery-only.
+            cut_watch = CutWatch()
+            cut_watch.start()
 
         start_temps = device_mgr.read_temps()
         run_start_time = datetime.now()
@@ -272,10 +277,23 @@ def single_run(
             replay_index=replay_index,
             early_stopped=early_stopped,
             early_stop_fps=early_stop_fps,
+            cut_rewrites=cut_watch.rewrites if cut_watch else 0,
+            cut_lost=bool(cut_watch and cut_watch.lost),
         )
         log.info("run saved: %s%s", run_start_time.strftime("%Y%m%d_%H%M%S"),
                  " (early stop, trace dropped)" if early_stopped else "")
+        if cut_watch is not None and (cut_watch.rewrites or cut_watch.lost):
+            log.warning("cut had to be re-applied %d time(s) during this run%s",
+                        cut_watch.rewrites,
+                        "; power numbers are polluted" if cut_watch.lost else "")
     finally:
+        if cut_watch is not None:
+            # Stop before restoring: a check in flight would cut the path right
+            # after restore writes it back.
+            cut_watch.stop()
+            cut_watch.join(20)
+            if cut_watch.is_alive():
+                log.warning("cut watchdog did not stop; restore may race it")
         stage("teardown")
         _teardown(device_mgr, config)
 

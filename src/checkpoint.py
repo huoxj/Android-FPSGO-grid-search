@@ -37,6 +37,8 @@ class CheckpointMgr:
         replay_index: int | None = None,
         early_stopped: bool = False,
         early_stop_fps: list[int] | None = None,
+        cut_rewrites: int = 0,
+        cut_lost: bool = False,
     ) -> GridRunMeta:
         meta = GridRunMeta(
             grid_params=params,
@@ -46,6 +48,8 @@ class CheckpointMgr:
             replay_index=replay_index,
             early_stopped=early_stopped,
             early_stop_fps=early_stop_fps,
+            cut_rewrites=cut_rewrites,
+            cut_lost=cut_lost,
         )
         meta_path = os.path.join(
             self.path, f"{run_start_time.strftime('%Y%m%d_%H%M%S')}.json"

@@ -10,8 +10,9 @@ Lifecycle per run:
 """
 from time import sleep
 import logging
+import threading
 
-from errors import Kind
+from errors import Kind, Suspend
 from utils.adb import adb_shell
 from utils.log import status
 from utils.wait import wait_until
@@ -114,3 +115,56 @@ def restore_charging():
 def recheck_cut_state() -> bool:
     """Mid-run sanity probe: is the cut still in effect?"""
     return _read_int(CURRENT_NOW) <= CUT_VERIFY_CURRENT_MAX
+
+
+class CutWatch(threading.Thread):
+    """Keep the charge path cut for as long as the run lasts.
+
+    The cut is NOT sticky. The ODM charging state machine re-evaluates on its
+    own and puts the power path back once it decides charging is allowed again
+    (a hot battery blocks charging, cooling unblocks it). Measured 2026-11-04:
+    cut verified at -138mA, then an 11-minute game run left the gauge at 100% -
+    the phone was charged through the whole measurement, so batt.power_mw was
+    the charger's share, not the device's draw.
+
+    Samples the battery current every `interval` seconds and re-cuts the moment
+    it turns positive. `rewrites` = re-cuts, `lost` = the driver refused, which
+    means this run's power numbers are polluted.
+    """
+
+    def __init__(self, interval: int = 15):
+        super().__init__(daemon=True)
+        self.interval = interval
+        self.rewrites = 0
+        self.lost = 0
+        self._stop = threading.Event()
+
+    def stop(self):
+        self._stop.set()
+
+    def run(self):
+        while not self._stop.wait(self.interval):
+            self.check()
+
+    def check(self):
+        try:
+            cur = _read_int(CURRENT_NOW)
+            if cur <= CUT_VERIFY_CURRENT_MAX or self._stop.is_set():
+                return
+            adb_shell(f"echo 0 > {EN_POWER_PATH}")
+            sleep(CUT_VERIFY_SETTLE)
+            after = _read_int(CURRENT_NOW)
+        except Suspend:
+            return          # losing the device is the main loop's problem
+        except Exception as e:
+            log.warning("cut watchdog: %s", e)
+            return
+        if after <= CUT_VERIFY_CURRENT_MAX:
+            self.rewrites += 1
+            log.warning("charge path re-opened mid-run (current_now %dmA); "
+                        "re-cut to %dmA", round(cur / 1000), round(after / 1000))
+        else:
+            self.lost += 1
+            log.error("charge path re-opened mid-run and refuses the cut "
+                      "(current_now %dmA): this run's power numbers are "
+                      "polluted", round(after / 1000))
