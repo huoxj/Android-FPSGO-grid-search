@@ -2,6 +2,7 @@ from time import sleep, monotonic
 from pathlib import Path
 import logging
 import subprocess
+import sys
 import cv2
 import numpy as np
 import queue
@@ -91,8 +92,16 @@ def sgame_run(params: dict, replay_index: int) -> tuple[Path, list[int], bool]:
         trace_tmp_path.unlink(missing_ok=True)
         raise
     finally:
-        # Window end marker must precede perfetto stop, else it misses the trace
-        _grid_marker("RUN_END")
+        # Window end marker must precede perfetto stop, else it misses the
+        # trace. But a marker that fails on a dropped device must not hide the
+        # error that brought us here.
+        in_flight = sys.exc_info()[0] is not None
+        try:
+            _grid_marker("RUN_END")
+        except Exception as e:
+            if not in_flight:
+                raise
+            log.warning("could not write the RUN_END marker: %s", e)
         # Stop perfetto tracing
         proc.terminate()
         try:
