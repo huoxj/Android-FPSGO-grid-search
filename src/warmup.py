@@ -54,8 +54,11 @@ LOCKOUT_COOLDOWN = 15 * 60 + 60  # 15-min lock + margin
 MAX_ENTRY_FAILURES = 2
 
 # Entry failures a cooldown cannot fix: missing template, replay card index
-# outside the visible grid, malformed config.
-_NO_COOLDOWN = (FileNotFoundError, KeyError, ValueError)
+# outside the visible grid, malformed config, and programming errors - a
+# TypeError/AttributeError is never a play-session lockout. Swallowing those as
+# "assume lockout" hides a real bug behind a 16-minute sleep.
+_NO_COOLDOWN = (FileNotFoundError, KeyError, ValueError,
+                TypeError, AttributeError, NameError)
 
 
 def warm_and_ready() -> None:
