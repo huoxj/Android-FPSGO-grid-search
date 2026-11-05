@@ -29,7 +29,9 @@ from errors import TransientError
 import utils.device_utils as du
 from utils import ui
 from utils.log import STATUS_LOG_EVERY, status
-from sgame import _prepare_resources, _reenter_replay, _exit_game, _sync_timeline_0s
+from sgame import (
+    RestLockout, _prepare_resources, _reenter_replay, _exit_game, _sync_timeline_0s
+)
 
 log = logging.getLogger(__name__)
 
@@ -139,15 +141,24 @@ def _burn(conf) -> None:
             ui.tap(*SPEED_BUTTON)
             sleep(1)
             ui.tap(*SPEED_4X)
-        except _NO_COOLDOWN:
-            raise
-        except Exception as e:
+        except RestLockout as e:
+            # Health-system rest banner: a minutes-scale block, so waiting it
+            # out is right. Everything else is a missed step, not a lockout.
             entry_failures += 1
             wait = min(LOCKOUT_COOLDOWN,
                        max(0, conf.power.warmup_secs - elapsed))
-            log.warning("warmup: entry failed (%s); cooling down %.0fs "
-                        "for a possible lockout", e, wait)
+            log.warning("warmup: rest lockout (%s); cooling down %.0fs",
+                        e, wait)
             sleep(wait)
+            continue
+        except _NO_COOLDOWN:
+            raise
+        except Exception as e:
+            # A warm restart that lands back on the start screen, a missed
+            # tap, a popup the templates do not know: retry the entry right
+            # away instead of burning the warmup budget on a 11-minute nap.
+            entry_failures += 1
+            log.warning("warmup: entry failed (%s); retrying the entry", e)
             continue
 
         # Watch this replay for one run's worth of playback at 4x, then

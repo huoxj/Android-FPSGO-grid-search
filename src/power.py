@@ -89,7 +89,12 @@ def cut_for_measurement():
 
 
 def restore_charging():
-    """Restore charging; raises if the battery still is not taking current.
+    """Restore charging; prove the path is open, not that current flows.
+
+    On a full battery the charger stops (current_now ~= 0, sometimes -1mA),
+    so a current-based check reads a healthy restore as a failure. The switch
+    value is the real signal; current is only a fallback for devices that do
+    not expose it.
 
     Runs with the screen off (main turns it off before calling this): a lit
     screen draws more than a 5V/0.5A port supplies, so the battery current
@@ -98,17 +103,23 @@ def restore_charging():
     for attempt in range(1, WRITE_RETRIES + 1):
         adb_shell(f"echo 1 > {EN_POWER_PATH}")
         sleep(2)
+        path = adb_shell(f"cat {EN_POWER_PATH}").strip()
+        if path == "1":
+            log.info("charging restored: en_power_path=1, current_now=%dmA",
+                     round(_read_int(CURRENT_NOW) / 1000))
+            return
         cur = _read_int(CURRENT_NOW)
         if cur > CUT_VERIFY_CURRENT_MAX:
             log.info("charging restored: current_now = %dmA",
                      round(cur / 1000))
             return
-        log.warning("restore attempt %d/%d failed: current_now = %dmA",
-                    attempt, WRITE_RETRIES, round(cur / 1000))
+        log.warning("restore attempt %d/%d failed: en_power_path=%r, "
+                    "current_now = %dmA", attempt, WRITE_RETRIES, path,
+                    round(cur / 1000))
         sleep(WRITE_RETRY_GAP)
     raise RuntimeError(
-        "Failed to restore charging - battery current stays <= 0; "
-        "check the charger/port (a weak 5V port cannot cover the device)"
+        "Failed to restore charging - en_power_path did not read back 1 "
+        "and battery current stays <= 0; check the charger/port"
     )
 
 
@@ -137,19 +148,22 @@ class CutWatch(threading.Thread):
         self.interval = interval
         self.rewrites = 0
         self.lost = 0
-        self._stop = threading.Event()
+        # NOT `_stop`: Thread._stop() is a real method that join(),
+        # is_alive() and threading._after_fork() all call. Shadowing it with
+        # an Event turns every one of those into a TypeError.
+        self._stop_evt = threading.Event()
 
     def stop(self):
-        self._stop.set()
+        self._stop_evt.set()
 
     def run(self):
-        while not self._stop.wait(self.interval):
+        while not self._stop_evt.wait(self.interval):
             self.check()
 
     def check(self):
         try:
             cur = _read_int(CURRENT_NOW)
-            if cur <= CUT_VERIFY_CURRENT_MAX or self._stop.is_set():
+            if cur <= CUT_VERIFY_CURRENT_MAX or self._stop_evt.is_set():
                 return
             adb_shell(f"echo 0 > {EN_POWER_PATH}")
             sleep(CUT_VERIFY_SETTLE)

@@ -116,6 +116,12 @@ def sgame_run(params: dict, replay_index: int) -> tuple[Path, list[int], bool]:
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait()
+        except Exception as e:
+            # The recorder's own failure must not mask the error that brought
+            # us here - the run is already lost either way.
+            if not in_flight:
+                raise
+            log.warning("trace recorder failed while unwinding: %s", e)
 
     _exit_game()
 

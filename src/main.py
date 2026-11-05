@@ -9,6 +9,7 @@ from pathlib import Path
 from config import get_config
 from errors import ConfigError, Kind, PreconditionError
 from fpsgo_params_grid import get_grid_samples as get_grid
+from models.fpsgo_params import FpsgoParams
 from checkpoint import CheckpointMgr
 from device_state import DeviceMgr
 from sgame import sgame_run, RestLockout
@@ -84,6 +85,10 @@ def main():
         seed = random.randrange(2**32)
 
     run_queue = build_run_queue(grid, config.repeats, seed)
+    # Fail before charge/warmup: an out-of-range combo would only surface
+    # inside the measured run, and every retry burns another full warmup.
+    for p in grid:
+        FpsgoParams(**p)
 
     log.info("%d combos x %d groups = %d runs (shuffle seed %d)",
              len(grid), config.repeats, len(run_queue), seed)
@@ -205,6 +210,13 @@ def single_run(
     #    stays ON through warmup and the ready wait - only the RUN is
     #    measured battery-only.
     stage("charge")
+    # The cut lives in kernel state, so a previous run that died before
+    # teardown leaves the charge path closed and the battery never fills.
+    if config.power.enable:
+        try:
+            restore_charging()
+        except Exception as e:
+            log.warning("could not restore charging before the charge wait: %s", e)
     device_mgr.wait_for_charge(
         config.power.charge_target, config.power.charge_wait_max
     )
