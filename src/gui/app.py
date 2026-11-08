@@ -203,6 +203,7 @@ class App:
         self._stopped_local = False
         self._replay_ack = False
         self._stopping = False
+        self._auto_jumped = False
         self._last_err_dialog = datetime.min
         self._adb_tick = 99
 
@@ -1002,6 +1003,7 @@ class App:
         self._error_shown = False
         self._user_stopped = False
         self._stopped_local = False
+        self._auto_jumped = False
         try:
             self.proc = backend.start_search(out)
         except Exception:
@@ -1184,6 +1186,7 @@ class App:
                     # 状态文件可能来自上一个进程（比如 GUI 重启过），所以不依赖 running()
                     self.poll_status()
                     self.poll_log()
+                    self.maybe_autojump()
                 self.check_process()
                 if self.step == 1:
                     self._adb_tick += 1
@@ -1198,6 +1201,14 @@ class App:
                                     "程序内部错误，可能是状态文件或日志读到一半。",
                                     traceback.format_exc())
                 continue
+
+    def maybe_autojump(self):
+        """搜索跑完就自动切到结果页；只在搜索页时跳，别打断正在改配置的人。"""
+        st = self.status or {}
+        if (st.get("state") == "finished" and not self._auto_jumped
+                and self.step == 2 and not self._stopping):
+            self._auto_jumped = True
+            self.goto(3)
 
     def update_adb(self):
         ok, text = backend.adb_devices()
