@@ -13,6 +13,20 @@ import re
 import subprocess
 
 from utils.adb import NO_WINDOW
+
+
+if os.name == "nt":
+    # 分析阶段 perfetto 库自己 spawn tp_shell_bin.exe，拿不到它的 Popen 参数，
+    # 只能在 GUI 进程里统一补 CREATE_NO_WINDOW（CLI 不走这里）。
+    _Popen = subprocess.Popen
+
+    class _HiddenPopen(_Popen):
+        def __init__(self, *args, **kwargs):
+            kwargs["creationflags"] = (kwargs.get("creationflags", 0)
+                                       | subprocess.CREATE_NO_WINDOW)
+            super().__init__(*args, **kwargs)
+
+    subprocess.Popen = _HiddenPopen
 import sys
 import tomllib
 from pathlib import Path

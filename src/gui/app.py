@@ -1243,16 +1243,22 @@ class App:
         skipped = st.get("skipped", 0)
         current = st.get("current", 0)
         state = st.get("state")
-        active_now = 1 if (current and state == "searching") else 0
+        # 一个 run 结束后 stage 变成 teardown/None 到下一次 run_start 之间，
+        # 没有人真的在跑，别把它算成「正在跑」，否则没跑数会少 1
+        busy = st.get("stage") not in (None, "teardown")
+        active_now = 1 if (current and state == "searching" and busy) else 0
         left = max(total - done - skipped - active_now, 0)
         self.btn_stop.disabled = not self.running()
         if state == "finished":
             self.s_head.value = f"搜索已完成，共 {total} 次"
         elif state == "stopped":
             self.s_head.value = "搜索已停止"
+        elif busy and current:
+            self.s_head.value = f"正在第 {current} 次，共 {total} 次"
+        elif done:
+            self.s_head.value = f"已完成 {done} 次，共 {total} 次"
         else:
-            self.s_head.value = (f"正在第 {current} 次，共 {total} 次" if current
-                                 else "等待搜索进程...")
+            self.s_head.value = "等待搜索进程..."
         self.s_stats.value = f"跳过 {skipped} · 已完成 {done} · 还没跑 {left}" if total else ""
         if self._stopping:
             self.s_head.value = "正在停止…"
@@ -1282,7 +1288,12 @@ class App:
                                 self.legend_item("#E1E4E9", f"还没跑 {left}")]
 
         params = st.get("params") or {}
-        self.run_title.value = f"第 {current} 次运行" if current else "当前没有运行中的 run"
+        if busy and current:
+            self.run_title.value = f"第 {current} 次运行"
+        elif current:
+            self.run_title.value = f"第 {current} 次运行已结束"
+        else:
+            self.run_title.value = "当前没有运行中的 run"
         self.run_chip.content.value = (f"第 {(st.get('replay') or 0) + 1} 轮"
                                        if st.get("replay") is not None else "")
         self.run_params.value = "  ".join(f"{k}={v}" for k, v in params.items())
@@ -1306,7 +1317,9 @@ class App:
                 node["circle"].bgcolor, node["circle"].border = BLUE, ft.Border.all(3, "#BFDBFE")
                 node["icon"].color, node["icon"].size = CARD, 16
                 node["name"].color = BLUE
-                node["time"].value = "进行中" if state == "searching" else "已停止"
+                node["time"].value = ("收尾中" if stage_name == "teardown"
+                                      else "进行中" if state == "searching"
+                                      else "已停止")
             else:
                 node["circle"].bgcolor, node["circle"].border = CARD, ft.Border.all(2, LINE)
                 node["icon"].color = FAINT
@@ -1377,7 +1390,11 @@ class App:
                         t("已用 " + fmt_dur(elapsed), size=12, color=MUTED)]),
                 *rows, t(hint, size=12, color=MUTED)], spacing=8)
 
-        # run / teardown
+        if stage_name == "teardown":
+            return ft.Column([t("这次运行结束了，正在收尾：熄屏、恢复充电。",
+                                size=12, color=MUTED)], spacing=8)
+
+        # run
         dur = st.get("run_duration") or 600
         running = st.get("state") == "searching"
         aligned = parse_dt(st.get("run_aligned_at"))

@@ -83,6 +83,8 @@ src/status.py       CLI 侧写进度（GUI_STATUS=1 时才启用）
 - **不留黑窗**。Windows 上每次 spawn 控制台程序都会闪一下，而采样阶段几秒一次 adb。
   `utils/adb.py` 定义 `NO_WINDOW = subprocess.CREATE_NO_WINDOW`，所有 `adb` 调用（含
   `sgame.py` 里直接起的 logcat）和 GUI 起子进程都带上它。
+  分析阶段 perfetto 库自己 spawn `tp_shell_bin.exe`，拿不到参数，所以 `gui_backend`
+  在 Windows 上把 `subprocess.Popen` 换成自动带 `CREATE_NO_WINDOW` 的子类（只影响 GUI 进程）。
 
 ## 字体
 

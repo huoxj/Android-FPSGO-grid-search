@@ -182,6 +182,7 @@ def main():
                 if attempt >= config.run_max_attempts:
                     log.error("run failed after %d attempts: %s", attempt, e)
                     skipped_runs += 1
+                    run_status.skipped()
                     break
                 log.warning("run attempt %d/%d failed: %s (retry in %ds)",
                             attempt, config.run_max_attempts, e, backoff)
