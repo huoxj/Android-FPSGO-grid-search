@@ -62,6 +62,7 @@ class StatusWriter:
             "seed": seed,
             "stage": None,
             "stage_started_at": None,
+            "run_aligned_at": None,      # 游戏 timeline 走到 0s 的时刻
             "stages": [],
             "run_started_at": None,
             "params": {},
@@ -105,7 +106,7 @@ class StatusWriter:
     def run_start(self, index: int, params: dict, group: int, replay: int | None):
         self._patch(current=index + 1, params=dict(params), group=group,
                     replay=replay, run_started_at=_now(), stage=None,
-                    stage_started_at=None, stages=[])
+                    stage_started_at=None, run_aligned_at=None, stages=[])
 
     def stage(self, name: str) -> None:
         now = _now()
@@ -116,6 +117,10 @@ class StatusWriter:
             stages[-1]["ended_at"] = now
         stages.append({"name": name, "started_at": now, "ended_at": None})
         self._patch(stage=name, stage_started_at=now)
+
+    def aligned(self) -> None:
+        """对局真正开始的 0s；GUI 的录制计时从这里起算。"""
+        self._patch(run_aligned_at=_now())
 
     def skipped(self) -> None:
         self._patch(skipped=self.state["skipped"] + 1)
@@ -229,6 +234,10 @@ def on_stage(name: str) -> None:
 
 def skipped() -> None:
     _call("skipped")
+
+
+def run_aligned() -> None:
+    _call("aligned")
 
 
 def run_end() -> None:

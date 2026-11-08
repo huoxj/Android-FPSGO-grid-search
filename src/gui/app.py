@@ -1379,12 +1379,28 @@ class App:
 
         # run / teardown
         dur = st.get("run_duration") or 600
-        secs = int(min(elapsed, dur))
+        running = st.get("state") == "searching"
+        aligned = parse_dt(st.get("run_aligned_at"))
+        if aligned is None:
+            return ft.Column([
+                ft.Row([t("正在进入游戏对局等待对齐中" if running else "已停止", size=13),
+                        ft.Container(expand=True),
+                        ft.ProgressRing(width=16, height=16, stroke_width=2, color=BLUE,
+                                        visible=running)]),
+                ft.ProgressBar(value=None if running else 0, height=10, color=BLUE,
+                               bgcolor=TRACK, border_radius=5),
+                t("进游戏、进回放，等对局开始的 0 秒信号。对齐之前不计时。",
+                  size=12, color=MUTED)], spacing=10)
+
+        game = max((ref - aligned).total_seconds(), 0)
+        rec = int(max(game - 30, 0))       # 0s→30s 是下发参数、等战斗开始，不算录制
+        secs = int(min(rec, dur))
         return ft.Column([
-            ft.Row([t("正在录制" if st.get("state") == "searching" else "已停止",
-                      size=13), ft.Container(expand=True),
-                    t(f"{secs // 60}:{secs % 60:02d} / {dur // 60}:00", size=18,
-                      weight=ft.FontWeight.W_600)]),
+            ft.Row([t("正在录制" if running else "已停止", size=13),
+                    ft.Container(expand=True),
+                    t(f"对局 {int(game) // 60}:{int(game) % 60:02d}", size=13, color=MUTED),
+                    t(f"录制 {secs // 60}:{secs % 60:02d} / {dur // 60}:00", size=18,
+                      weight=ft.FontWeight.W_600)], spacing=10),
             ft.ProgressBar(value=min(secs / max(dur, 1), 1), height=10, color=BLUE,
                            bgcolor=TRACK, border_radius=5),
             t("这次录制被中断，不会计入结果。" if stopped else

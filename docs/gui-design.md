@@ -36,6 +36,7 @@ src/status.py       CLI 侧写进度（GUI_STATUS=1 时才启用）
 | `state` | `searching` / `finished` / `stopped` |
 | `total` `done` `skipped` `current` | 总进度（按参数组合 × 重复次数） |
 | `stage` `stage_started_at` `stages[]` | 当前 run 的阶段轴：charge / warmup / ready / cut / run |
+| `run_aligned_at` | 游戏 timeline 走到 0s 的时刻；录制计时从这里起算，之前显示「等待对齐中」 |
 | `battery` `current_ma` `temps` `targets` | 充电、热机、冷却面板；只在非录制阶段采样，避免打扰测量 |
 | `params` `group` `replay` | 当前 run 在跑什么 |
 | `run_duration` | 录制时长，用于算录制进度 |
@@ -52,6 +53,8 @@ src/status.py       CLI 侧写进度（GUI_STATUS=1 时才启用）
 - **续跑**：进入页面时看 `output_dir` 里的 run 元数据数，少于应有次数就提示「继续上次搜索」；
   「换个目录重新开始」会带时间戳另起目录，不删旧数据。
 - **搜索页**：总进度条按 跳过 / 已完成 / 正在跑 / 还没跑 分段；ETA 用已完成 run 的平均耗时；
+  录制计时跟对局 0s 对齐（`run_aligned_at`），对齐前只显示「正在进入游戏对局等待对齐中」和
+  不确定进度条；对齐后显示「对局 mm:ss」与「录制 mm:ss / run_dur」，录制从 0s 后 30s 起算；
   当前 run 有独立的阶段轴（含每步开始时间和耗时）；日志原样 tail。
 - **结果页**：只保留三张推荐卡 + 包络线图 + 已选点详情 + 可折叠的明细表。
   不展示 trace 文件名、录制时间这些对决策没用的信息。y 轴按「越小越靠上」翻转。
