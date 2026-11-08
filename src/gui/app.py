@@ -776,31 +776,29 @@ class App:
                 actions=[ft.TextButton(content=t("知道了", size=13),
                                        on_click=lambda e: self.page.pop_dialog())]))
             return
-        keys = [k for r in rows for k in r["keys"]]
         combos = []
         for pick in itertools.product(*[r["vals"] for r in rows]):
             params = {}
             for r, vs in zip(rows, pick):
                 params.update(dict(zip(r["keys"], vs)))
             combos.append(params)
-        head = ft.Row([t("组合", size=12, color=MUTED, width=60)] +
-                      [t(k, size=12, color=MUTED, width=140) for k in keys])
-        body = [head] + [
-            ft.Row([t(f"#{i + 1}", size=12, color=MUTED, width=60)] +
-                   [t(str(c.get(k, "")), size=12, width=140) for k in keys])
-            for i, c in enumerate(combos[:40])]
-        for row in body:
-            row.scroll = ft.ScrollMode.AUTO
+        blocks = []
+        for i, c in enumerate(combos[:40]):
+            line = "   ".join(f"{k}={v}" for k, v in c.items())
+            blocks.append(ft.Row(
+                [t(f"#{i + 1}", size=11, color=FAINT, width=36),
+                 ft.Text(line, size=12, color=INK, expand=True, **MONO)],
+                spacing=6, vertical_alignment=ft.CrossAxisAlignment.START))
+        rep = max(as_int(self.rep_tf.value, 3), 1)
         self.page.show_dialog(ft.AlertDialog(
             bgcolor=CARD,
             title=t("将要搜索的参数组合", size=17, weight=ft.FontWeight.W_600, color=INK),
-            content=ft.Container(width=680,
-                                 height=min(420, 110 + 26 * min(len(body), 12)),
+            content=ft.Container(width=700,
+                                 height=min(470, 110 + 30 * min(len(blocks), 12)),
                                  content=ft.Column([
-                                     t(f"共 {len(combos)} 个组合 × {self.rep_tf.value} 次 = "
-                                       f"{len(combos) * int(self.rep_tf.value or 3)} 次运行",
-                                       size=13, color=INK),
-                                     ft.Column(body, spacing=6, expand=True,
+                                     t(f"共 {len(combos)} 个组合 × {rep} 次 = "
+                                       f"{len(combos) * rep} 次运行", size=13, color=INK),
+                                     ft.Column(blocks, spacing=8, expand=True,
                                                scroll=ft.ScrollMode.AUTO),
                                  ], spacing=12, expand=True)),
             actions=[ft.FilledButton(content=t("知道了", size=13, color=CARD), bgcolor=BLUE,
