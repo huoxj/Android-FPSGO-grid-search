@@ -50,6 +50,23 @@ release 包内含两个可执行文件：
 
 两个程序均需在包目录下运行（从同目录的 `config.toml` 读配置）。webui 启动后通过 `http://localhost:<webui_port>` 访问。
 
+### GUI（图形界面）
+
+搜索、看进度、分析结果在一个窗口里完成，不用手改配置文件。
+
+```bash
+uv sync --group gui
+uv run python src/gui_main.py             # 桌面窗口
+GUI_WEB=1 uv run python src/gui_main.py   # 浏览器打开 http://localhost:8550
+```
+
+- 三步：编辑搜索配置 → 搜索 → 结果分析，顶部可以来回切。
+- 界面里改的配置会写回同目录的 `config.toml`；搜索仍由 `fpsgo-optim` 主程序执行，GUI 只负责启动和观察。
+- 进度来自 `output_dir/.gui/status.json` 和 `grid_search.log`，CLI 单独跑不受影响。
+- 中断过的搜索会自动识别，提示继续或换目录重新开始。
+- 打包后产物为 `fpsgo-optim-gui.exe`，和 `fpsgo-optim.exe`、`config.toml` 放同一目录即可。
+  设计说明见 [docs/gui-design.md](docs/gui-design.md)。
+
 ### 源码模式单独启动 webui
 
 不跑搜索、只想分析已有输出时，可以从源码直接启动 webui：

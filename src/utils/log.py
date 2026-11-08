@@ -63,6 +63,12 @@ def status(msg: str) -> None:
 def stage(name: str) -> None:
     """Mark a phase boundary, so the log reads as a sequence of phases."""
     logging.getLogger("grid").info("-- %s --", name)
+    # GUI 状态文件（未启用时是 no-op）；延迟导入避免循环依赖
+    try:
+        import status
+        status.on_stage(name)
+    except Exception:
+        pass
 
 
 def setup(level: str = "INFO", log_file: str | None = None) -> None:

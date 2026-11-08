@@ -1,11 +1,13 @@
 from time import monotonic, sleep
 import logging
+import os
 import random
 import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
 
+import status as run_status
 from config import get_config
 from errors import ConfigError, Kind, PreconditionError
 from fpsgo_params_grid import get_grid_samples as get_grid
@@ -90,6 +92,10 @@ def main():
     for p in grid:
         FpsgoParams(**p)
 
+    # Machine-readable progress for the GUI (no-op unless GUI_STATUS=1).
+    run_status.init(config.output_dir, len(run_queue), config.repeats,
+                    len(grid), seed)
+
     log.info("%d combos x %d groups = %d runs (shuffle seed %d)",
              len(grid), config.repeats, len(run_queue), seed)
     log.info("output %s | existing runs %d | log %s",
@@ -115,6 +121,7 @@ def main():
             log.info("[g%d/%d] skip combo (already ran %d/%d)",
                      g + 1, config.repeats, searched, config.repeats)
             skipped_runs += 1
+            run_status.skipped()
             continue
 
         # Run with backoff retry
@@ -130,11 +137,14 @@ def main():
                 # a finished run back.
                 log.info("[g%d] run already recorded, not rerunning", g + 1)
                 completed_runs += 1
+                run_status.run_end()
                 break
             try:
                 replay_idx = resolve_replay_index(g)
+                run_status.run_start(i, params, g, replay_idx)
                 single_run(device_mgr, ckpt_manager, params, replay_idx)
                 completed_runs += 1
+                run_status.run_end()
                 break
             except _NON_RETRYABLE:
                 raise
@@ -178,6 +188,11 @@ def main():
 
     log.info("batch finished: completed %d, skipped %d, total %d",
              completed_runs, skipped_runs, len(run_queue))
+    run_status.finish()
+
+    if os.environ.get("GUI_STATUS") == "1":
+        # GUI 自己展示结果；这里再起网页服务会永远阻塞，进程退不出去
+        return
 
     # Launch the result UI in-process and block on it, so the console stays
     # alive until the operator closes the browser tab / Ctrl-C. (In the
