@@ -16,35 +16,27 @@ if (-not (Test-Path $TpBin)) {
 $actual = (Get-FileHash $TpBin -Algorithm SHA256).Hash.ToLower()
 if ($actual -ne $TpSha256) { Write-Host "sha256 checksum failed: $actual"; exit 1 }
 
-# 2. Build executables (search + standalone webui)
-$Name = 'fpsgo-optim'
-$NameWebui = 'fpsgo-webui'
+# 2. Build the single GUI executable (CLI embedded as `--cli` mode).
+#    flet pack == PyInstaller + prebuilt Flutter client: no Flutter SDK, no VS.
+#    First build downloads the client (~46MB) into ~/.flet/client.
+$Name = 'fpsgo-optim-gui'
 $Version = git describe --tags --always 2>$null
 if (-not $Version) { $Version = 'dev' }
 $Target = "windows-$($env:PROCESSOR_ARCHITECTURE.ToLower())"
 
-Remove-Item -Recurse -Force dist, build, .pyarmor\pack, main.spec -ErrorAction SilentlyContinue
-uv run pyarmor gen --pack onefile -O dist src/main.py
-
-uv run pyinstaller --onefile --name $Name `
-  --additional-hooks-dir .pyarmor\pack `
-  --collect-data perfetto `
-  --add-data "src\webui\static;webui\static" `
-  .pyarmor\pack\dist\main.py
-
-# Plain entry (no PyArmor) for the standalone webui exe.
-uv run pyinstaller --onefile --name $NameWebui `
+Remove-Item -Recurse -Force dist, build -ErrorAction SilentlyContinue
+uv run --group gui flet pack src\gui_main.py -y -n $Name --distpath dist -- `
   --paths src `
+  --hidden-import webui.server `
   --collect-data perfetto `
-  --add-data "src\webui\static;webui\static" `
-  src\webui_main.py
+  --collect-data flet_web `
+  --add-data "src\gui\assets;assets"
 
 # 3. Create package
 $Pkg = "dist\${Name}-${Version}-${Target}"
 Remove-Item -Recurse -Force $Pkg -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Path $Pkg | Out-Null
 Move-Item "dist\$Name.exe" "$Pkg\$Name.exe" -Force
-Move-Item "dist\$NameWebui.exe" "$Pkg\$NameWebui.exe" -Force
 Copy-Item -Recurse resources, perfetto_configs, docs -Destination $Pkg
 Copy-Item config.example.toml "$Pkg\config.toml"
 Copy-Item README.md, LICENSE $Pkg

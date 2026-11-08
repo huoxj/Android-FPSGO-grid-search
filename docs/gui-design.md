@@ -60,22 +60,25 @@ src/status.py       CLI 侧写进度（GUI_STATUS=1 时才启用）
 
 ## 打包
 
-当前 `scripts/build.ps1` 只打 CLI 两个 exe，还没有 GUI 步骤。GUI 走不了 PyInstaller
-`--onefile`：Flet 桌面版底层是 Flutter，`flet build windows` 调的是 `flutter build windows`，
-需要 Flutter SDK + VS 2022 C++ 工具链，产物是**目录**（exe + DLL + data），不是单文件。
+`scripts/build.ps1` 只产出一个 `fpsgo-optim-gui.exe`（`flet pack`，底层是 PyInstaller）。
+CLI 通过同一个 exe 的 `--cli` 模式内嵌，不再单独打 `fpsgo-optim.exe` / `fpsgo-webui.exe`。
+不需要 Flutter SDK / VS：`flet pack` 用的是预编译的 Flutter 客户端，首次构建下载约 46MB
+（缓存在 `~/.flet/client`），运行时从 exe 里解包，不联网。
 
-要打成「包里多一个 GUI」，两条路：
+```powershell
+uv run --group gui flet pack src\gui_main.py -y -n fpsgo-optim-gui --distpath dist -- `
+  --paths src `
+  --hidden-import webui.server `
+  --collect-data perfetto `
+  --collect-data flet_web `
+  --add-data "src\gui\assets;assets"
+```
 
-1. 原生窗口：建一个独立的 app 目录（`main.py` + `assets/` + 依赖声明），构建前把
-   `src/gui`、`src/gui_backend.py`、`src/status.py`、`models/`、`webui/` 复制进去，
-   再 `flet build windows <app_dir>`，包内放 `gui\fpsgo-optim-gui.exe`（连同它的 DLL 目录）。
-2. 单 exe：只跑 web 模式（`GUI_WEB=1`），沿用现有 PyInstaller 流程，双击后开默认浏览器。
-   需要 `flet[web]` 和 `--collect-data flet_web`，没有原生窗口。
+- `--hidden-import webui.server`：结果页是函数内延迟导入，PyInstaller 静态分析看不到，
+  漏了打包能成功但点结果页会 ModuleNotFoundError。
+- 字体：frozen 时把 `FLET_ASSETS_DIR` 指到 `_MEIPASS/assets`，否则中文是方块。
+- `vendor/perfetto/tp_shell_bin.exe`、`perfetto_configs/`、`resources/`、`config.toml`
+  仍是 exe 旁边的外部文件：`report.py:52` 和 `config.py` 里是相对 CWD 的路径。
 
-两个前提（两条路都要）：
-- 依赖必须写进 `[project].dependencies` 或 app 目录的 `requirements.txt`；`flet build`
-  不认 `[dependency-groups]`。
-- 字体等资源要放在 app 目录的 `assets/` 下：打包后 `FLET_ASSETS_DIR` 会覆盖代码里传的路径。
-
-未验证项：Windows 打包没有在本机跑过（Linux 上无法产出 Windows 包）；
-真机流程的 UI 表现是用手工构造的 `status.json` 验证的，第一次真机跑需要盯一眼阶段轴。
+未验证项：Windows 上没跑过（Linux 上验证过同一套 `flet pack` 能出包、能从 exe 里解出客户端）；
+真机流程的 UI 表现是用手工构造的 `status.json` 验证的。

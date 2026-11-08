@@ -64,7 +64,8 @@ GUI_WEB=1 uv run python src/gui_main.py   # 浏览器打开 http://localhost:855
 - 界面里改的配置会写回同目录的 `config.toml`；搜索仍由 `fpsgo-optim` 主程序执行，GUI 只负责启动和观察。
 - 进度来自 `output_dir/.gui/status.json` 和 `grid_search.log`，CLI 单独跑不受影响。
 - 中断过的搜索会自动识别，提示继续或换目录重新开始。
-- 打包后产物为 `fpsgo-optim-gui.exe`，和 `fpsgo-optim.exe`、`config.toml` 放同一目录即可。
+- 打包后只有一个 `fpsgo-optim-gui.exe`（CLI 以 `--cli` 模式内嵌），旁边仍需
+  `config.toml`、`resources/`、`perfetto_configs/`、`vendor/perfetto/`。
   设计说明见 [docs/gui-design.md](docs/gui-design.md)。
 
 ### 源码模式单独启动 webui

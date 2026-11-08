@@ -131,11 +131,8 @@ def resume_info(output_dir: str, total: int) -> dict:
 # ── 搜索进程 ────────────────────────────────────────────────────────────
 def cli_command() -> list[str]:
     if getattr(sys, "frozen", False):
-        exe = Path(sys.executable).with_name(
-            "fpsgo-optim.exe" if os.name == "nt" else "fpsgo-optim")
-        if exe.exists():
-            return [str(exe)]
-        return [sys.executable]
+        # 单文件打包：CLI 是同一个 exe 的 --cli 模式
+        return [sys.executable, "--cli"]
     return [sys.executable, str(SRC / "main.py")]
 
 

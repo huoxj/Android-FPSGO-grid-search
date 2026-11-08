@@ -1471,6 +1471,10 @@ def main(page: ft.Page):
 
 def run():
     web = os.environ.get("GUI_WEB") == "1"
+    if getattr(sys, "frozen", False):
+        # onefile 把资源解压在 _MEIPASS；flet 优先读 FLET_ASSETS_DIR
+        base = Path(getattr(sys, "_MEIPASS", HERE))
+        os.environ.setdefault("FLET_ASSETS_DIR", str(base / "assets"))
     ft.run(main, view=ft.AppView.FLET_APP_WEB if web else ft.AppView.FLET_APP,
            port=int(os.environ.get("GUI_PORT", "8550")), no_cdn=True,
            assets_dir=str(HERE / "assets"))

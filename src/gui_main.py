@@ -1,6 +1,5 @@
-# fpsgo-gui entry: 桌面窗口跑 GUI；设 GUI_WEB=1 则开浏览器版。
-# 和数据层解耦：这里只负责把 src 放进 sys.path 再转发给 gui.app.run。
-import os
+# fpsgo-optim-gui 入口：双击开 GUI；带 --cli 时跑命令行主程序。
+# 打包成单文件后 CLI 不再是独立 exe，而是同一个 exe 的另一个模式（GUI 起搜索子进程时用）。
 import sys
 from pathlib import Path
 
@@ -11,5 +10,14 @@ if str(_SRC) not in sys.path:
 from gui.app import run  # noqa: E402
 
 
+def main():
+    if "--cli" in sys.argv:
+        sys.argv.remove("--cli")
+        from main import main as cli_main
+        cli_main()
+    else:
+        run()
+
+
 if __name__ == "__main__":
-    run()
+    main()
