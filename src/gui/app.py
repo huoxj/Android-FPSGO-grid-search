@@ -14,6 +14,7 @@ import asyncio
 import itertools
 import os
 import sys
+import traceback
 from datetime import datetime
 from pathlib import Path
 
@@ -135,12 +136,39 @@ def param_short(params: dict, limit=2) -> str:
     return " · ".join(f"{k} {v}" for k, v in list(params.items())[:limit])
 
 
+ERROR_RULES = [
+    (("no devices", "device not found", "device offline"),
+     "手机没有连上",
+     "USB 调试没开、数据线松了，或者 adb 服务没起来。先在命令行跑 adb devices 确认能看到设备。"),
+    (("unauthorized",),
+     "手机没允许这台电脑调试",
+     "解锁手机，在弹窗里点「允许 USB 调试」后重试。"),
+    (("PermissionError", "Access is denied"),
+     "文件被占用或没有权限",
+     "输出目录不可写，或者 trace 文件正被别的程序打开。"),
+    (("ConfigError", "ValidationError", "validation error"),
+     "配置有问题",
+     "某个参数超出允许范围，或 config.toml 格式被改坏了。回配置页检查。"),
+    (("FileNotFoundError", "No such file"),
+     "缺少文件",
+     "回放目录、perfetto 配置或 tp_shell_bin.exe 可能不在程序旁边。"),
+]
+
+
+def classify_error(text: str) -> tuple[str, str]:
+    low = (text or "").lower()
+    for keys, title, cause in ERROR_RULES:
+        if any(k.lower() in low for k in keys):
+            return title, cause
+    return "搜索程序异常退出", "程序内部出错，具体原因看下面的原始报错。"
+
+
 class App:
     def __init__(self, page: ft.Page):
         self.page = page
         page.title = "FPSGO 参数搜索"
         page.theme_mode = ft.ThemeMode.LIGHT
-        page.fonts = {"CJK": "fonts/cjk2.otf"}
+        page.fonts = {"CJK": "fonts/cjk3.otf"}
         page.theme = ft.Theme(font_family="CJK")
         page.bgcolor = BG
         page.padding = 0
@@ -170,6 +198,12 @@ class App:
         self.group = "all"
         self.xk, self.yk = "fps", "power"
         self._log_drawn = 0
+        self._error_shown = False
+        self._user_stopped = False
+        self._stopped_local = False
+        self._replay_ack = False
+        self._last_err_dialog = datetime.min
+        self._adb_tick = 99
 
         self.build()
         if self.step >= 2:
@@ -179,6 +213,7 @@ class App:
         self.body.content = (self.config_view if self.step == 1
                              else self.search_view if self.step == 2 else self.result_view)
         page.add(self.shell)
+        self.update_adb()
         if self.step >= 3:
             self.ensure_results()
         self.render()
@@ -189,16 +224,18 @@ class App:
     def build(self):
         self.body = ft.Container(expand=True)
         self.stepper = self.build_stepper()
+        self.adb_dot = dot(FAINT)
+        self.adb_text = t("检查中…", size=12, color=MUTED)
+        self.adb_pill = ft.Container(
+            content=ft.Row([self.adb_dot, self.adb_text], spacing=6),
+            bgcolor=TRACK, border_radius=20, padding=ft.Padding(10, 5, 12, 5))
         head = ft.Row([
             ft.Column([
                 t("FPSGO 参数搜索", size=22, weight=ft.FontWeight.BOLD),
                 t("在手机上自动试参数，找出更流畅、更省电的配置", size=12, color=MUTED),
             ], spacing=2),
             ft.Container(expand=True),
-            ft.Container(
-                content=ft.Row([dot(GREEN), t("adb 已连接", size=12, color="#166534")],
-                               spacing=6),
-                bgcolor=GREEN_BG, border_radius=20, padding=ft.Padding(10, 5, 12, 5)),
+            self.adb_pill,
         ], vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
         self.build_config()
@@ -297,18 +334,18 @@ class App:
         self.warm_sw = ft.Switch(value=bool(power.get("warmup", True)),
                                  active_color=BLUE, on_change=self.on_form_change)
         self.temps = {}
+        self.temps_cols = {}
         for key, label, field, default in (
-                ("soc", "SOC", "ready_temp_soc_max", 60),
-                ("tsx", "机身", "ready_temp_tsx", 48),
-                ("batt", "电池", "ready_temp_battery", 42)):
+                ("soc", "SOC 最高温度", "ready_temp_soc_max", 60),
+                ("tsx", "机身温度", "ready_temp_tsx", 48),
+                ("batt", "电池温度", "ready_temp_battery", 42)):
             col, tf = self.num_field(label, int(cfg.get(field, default * 1000)) // 1000,
-                                     default, "℃", width=100)
+                                     default, "℃", width=120)
             self.temps[key] = tf
+            self.temps_cols[key] = col
 
         self.total_text = t("", size=13, color=INK)
         self.grid_pill = pill("", BLUE, BLUE_BG)
-        self.estimate = t("", size=13, color=INK)
-        self.estimate_sub = t("", size=12, color=MUTED)
 
         self.adv_fields = {}
         self.adv = ft.ExpansionTile(
@@ -345,8 +382,7 @@ class App:
                          self.total_text], spacing=14,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER)),
             card(section("跑多久 · 跑几次"),
-                 ft.Row([self.dur_col, self.rep_col], spacing=24),
-                 ft.Column([self.estimate, self.estimate_sub], spacing=3)),
+                 ft.Row([self.dur_col, self.rep_col], spacing=24)),
             card(section("设备准备"),
                  ft.Row([self.charge_col, ft.Column([
                      ft.Row([t("跑前热机", size=12, color=MUTED),
@@ -359,7 +395,8 @@ class App:
                              ft.Icon(ft.Icons.HELP_OUTLINE, size=13, color=FAINT,
                                      tooltip="温度降到这三个值以下才开始跑。这里填的是王者荣耀的推荐值")],
                             spacing=4),
-                     ft.Row([self.temps[k] for k in ("soc", "tsx", "batt")], spacing=18),
+                     ft.Row([self.temps_cols[k] for k in ("soc", "tsx", "batt")],
+                            spacing=18),
                  ], spacing=6)),
             self.adv,
             ft.Container(height=40),
@@ -602,10 +639,6 @@ class App:
         total = n * rep
         self.grid_pill.content.value = f"{n} 个组合"
         self.total_text.value = f"共 {n} 个组合 × {rep} 次 = {total} 次运行"
-        mins = total * (as_int(self.dur_tf.value, 10) + 32)
-        self.estimate.value = f"共 {total} 次运行，预计 {mins // 60} 小时 {mins % 60} 分"
-        self.estimate_sub.value = ("每次运行包含充电、热机、冷却和录制。"
-                                   "每组参数重复跑，看多局结果稳不稳。")
         info = backend.resume_info(
             backend.resolve_output_dir({"output_dir": self.out_tf.value}), total)
         self.banner.visible = bool(info["incomplete"])
@@ -615,15 +648,22 @@ class App:
 
     # ---- 交互
     def pick_dir(self, e):
-        def on_result(ev: ft.FilePickerResultEvent):
-            if ev.path:
-                self.out_tf.value = ev.path
+        async def go():
+            picker = ft.FilePicker()
+            self.page.services.append(picker)
+            self.page.update()
+            try:
+                path = await picker.get_directory_path(dialog_title="选择结果保存目录")
+            except Exception as ex:
+                self.show_error("打不开文件夹选择框",
+                                "当前平台不支持系统文件对话框，直接在输入框里填路径即可。",
+                                f"{type(ex).__name__}: {ex}")
+                return
+            if path:
+                self.out_tf.value = path
                 self.out_tf.update()
                 self.refresh_config()
-        picker = ft.FilePicker(on_result=on_result)
-        self.page.overlay.append(picker)
-        self.page.update()
-        picker.get_directory_path()
+        self.page.run_task(go)
 
     def on_resume(self, e):
         self.start_search()
@@ -658,16 +698,20 @@ class App:
             ft.Row([t(f"#{i + 1}", size=12, color=MUTED, width=60)] +
                    [t(str(c.get(k, "")), size=12, width=140) for k in keys])
             for i, c in enumerate(combos[:40])]
+        for row in body:
+            row.scroll = ft.ScrollMode.AUTO
         self.page.show_dialog(ft.AlertDialog(
             bgcolor=CARD,
             title=t("将要搜索的参数组合", size=17, weight=ft.FontWeight.W_600, color=INK),
-            content=ft.Container(width=620, height=70 + 26 * min(len(body), 12),
+            content=ft.Container(width=680,
+                                 height=min(420, 110 + 26 * min(len(body), 12)),
                                  content=ft.Column([
                                      t(f"共 {len(combos)} 个组合 × {self.rep_tf.value} 次 = "
                                        f"{len(combos) * int(self.rep_tf.value or 3)} 次运行",
                                        size=13, color=INK),
-                                     ft.Column(body, spacing=6, scroll=ft.ScrollMode.AUTO),
-                                 ], spacing=12)),
+                                     ft.Column(body, spacing=6, expand=True,
+                                               scroll=ft.ScrollMode.AUTO),
+                                 ], spacing=12, expand=True)),
             actions=[ft.FilledButton(content=t("知道了", size=13, color=CARD), bgcolor=BLUE,
                                      on_click=lambda e: self.page.pop_dialog())]))
 
@@ -716,6 +760,10 @@ class App:
                                     bgcolor="#0F172A", border_radius=10,
                                     padding=ft.Padding(12, 8, 12, 8))
         self.search_error = t("", size=12, color=RED)
+        self.btn_stop = ft.OutlinedButton(
+            content=t("停止搜索", size=12, color=RED), icon=ft.Icons.STOP_CIRCLE,
+            height=34, style=ft.ButtonStyle(padding=ft.Padding(8, 0, 10, 0)),
+            on_click=self.stop_search)
 
         self.search_view = ft.Column([
             ft.Row([ft.Column([self.s_head, self.s_stats], spacing=2),
@@ -723,10 +771,7 @@ class App:
                     ft.OutlinedButton(content=t("重启搜索", size=12, color=MUTED),
                                       icon=ft.Icons.RESTART_ALT, height=34,
                                       on_click=self.ask_restart),
-                    ft.OutlinedButton(content=t("停止搜索", size=12, color=RED),
-                                      icon=ft.Icons.STOP_CIRCLE, height=34,
-                                      style=ft.ButtonStyle(padding=ft.Padding(8, 0, 10, 0)),
-                                      on_click=self.stop_search)],
+                    self.btn_stop],
                    spacing=12, vertical_alignment=ft.CrossAxisAlignment.CENTER),
             self.search_error,
             card(section("总进度", "跳过 = 之前已经跑过（续跑时自动跳过），或重试多次仍失败放弃的那一次"),
@@ -845,10 +890,46 @@ class App:
 
     def start_search(self):
         self.start_error = None
-        if not self.save_form():
-            self.render()
-            self.page.update()
+        ok, why = backend.adb_devices()
+        if not ok:
+            self.show_error(
+                f"手机没连上（{why}）",
+                "USB 调试没开、数据线松了，或者 adb 服务没起来。"
+                "先在命令行跑 adb devices，能列出设备再回来重试。")
             return
+        if not self.save_form():
+            self.show_error("配置没有保存成功", "按提示改好后再点开始搜索。",
+                            self.start_error or "")
+            return
+        info = backend.resume_info(backend.resolve_output_dir({"output_dir": self.out_tf.value}),
+                                   self.total_runs())
+        if info["done"] == 0 and not self._replay_ack:
+            self.ask_replays()
+            return
+        self._start_now()
+
+    def ask_replays(self):
+        rep = max(as_int(self.rep_tf.value, 3), 1)
+        mins = as_int(self.dur_tf.value, 10) + 5
+        self.page.show_dialog(ft.AlertDialog(
+            bgcolor=CARD, modal=True,
+            title=t("开始前确认回放", size=17, weight=ft.FontWeight.W_600, color=INK),
+            content=ft.Container(width=560, height=140, content=ft.Column([
+                t(f"请确保「我的回放」下至少有 {rep} 个回放，且每局时长不低于 {mins} 分钟。",
+                  size=14, color=INK),
+                t("每个组合要跑不同对局；回放不够或太短，跑到后面对局会出错。",
+                  size=12, color=MUTED)], spacing=10)),
+            actions=[ft.TextButton(content=t("取消", size=13),
+                                   on_click=lambda e: self.page.pop_dialog()),
+                     ft.FilledButton(content=t("已准备好，开始搜索", size=13, color=CARD),
+                                     bgcolor=BLUE, on_click=self._ack_replays)]))
+
+    def _ack_replays(self, e=None):
+        self.page.pop_dialog()
+        self._replay_ack = True
+        self._start_now()
+
+    def _start_now(self):
         self.cfg = backend.load_config()
         out = self.cfg["output_dir"]
         self.results = None
@@ -857,12 +938,15 @@ class App:
         self.log_lines = []
         self.log_offset = 0
         self._log_drawn = 0
+        self._error_shown = False
+        self._user_stopped = False
+        self._stopped_local = False
         try:
             self.proc = backend.start_search(out)
-        except Exception as e:
-            self.start_error = f"启动搜索失败：{e}"
-            self.render()
-            self.page.update()
+        except Exception:
+            self.show_error("启动搜索进程失败",
+                            "exe 可能被安全软件拦住了，或输出目录不可写。",
+                            traceback.format_exc())
             return
         self.goto(2)
 
@@ -870,14 +954,117 @@ class App:
         if self.proc is not None:
             backend.stop_search(self.proc)
             self.proc = None
-            if self.status and self.status.get("state") == "searching":
-                self.status["state"] = "stopped"
-                self.status["error"] = "已手动停止"
+        self._user_stopped = True
+        self._stopped_local = True
+        st = self.status or {}
+        st["state"] = "stopped"
+        st["stopped_at"] = datetime.now().isoformat(timespec="seconds")
+        st["error"] = "已手动停止"
+        self.status = st
 
     def stop_search(self, e=None):
         self.stop_process()
         self.render()
         self.page.update()
+
+    # ---- 错误
+    def check_stuck(self):
+        """CLI 遇到设备掉线会自己重试十几分钟，别让用户干等。"""
+        if self.proc is None or self._error_shown:
+            return
+        st = self.status or {}
+        if st.get("stage") == "run" or st.get("state") != "searching":
+            return                      # 录制阶段本来就长时间不更新状态
+        upd = parse_dt(st.get("updated_at"))
+        if not upd or (datetime.now() - upd).total_seconds() < 180:
+            return
+        if (datetime.now() - self._last_err_dialog).total_seconds() < 600:
+            return
+        raw = self.error_text()
+        if not any(k in raw.lower() for k in
+                   ("no devices", "device offline", "unauthorized")):
+            return
+        self._last_err_dialog = datetime.now()
+        self.show_error("手机连接断了，程序在重试",
+                        "插好数据线、确认手机解锁并允许 USB 调试后，点「重跑当前对局」。"
+                        "不想等就点「停止」。", raw)
+
+    def error_text(self) -> str:
+        out = backend.resolve_output_dir(self.cfg)
+        chunks = []
+        for name in ("grid_search.log", ".gui/stdout.log"):
+            try:
+                with open(Path(out) / name, "rb") as f:
+                    f.seek(0, os.SEEK_END)
+                    size = f.tell()
+                    f.seek(max(size - 8000, 0))
+                    chunks.append(f.read().decode("utf-8", "replace"))
+            except OSError:
+                continue
+        text = "\n".join(chunks)
+        i = text.rfind("Traceback (most recent call last)")
+        if i >= 0:
+            return text[i:].strip()
+        lines = [l for l in text.splitlines() if " E " in l or "ERROR" in l]
+        return "\n".join(lines[-10:]) or text[-1200:].strip()
+
+    def show_error(self, title, cause, raw=""):
+        self._error_shown = True
+        parts = [t("发生了什么", size=11, color=FAINT), t(title, size=14, color=INK),
+                 t("可能的原因", size=11, color=FAINT), t(cause, size=13, color=MUTED)]
+        if raw:
+            parts += [t("原始报错", size=11, color=FAINT),
+                      ft.Container(height=200, bgcolor="#0F172A", border_radius=8,
+                                   padding=10,
+                                   content=ft.Column(
+                                       [t(raw[-4000:], size=11, color="#E5E7EB",
+                                          selectable=True, **MONO)],
+                                       scroll=ft.ScrollMode.AUTO, expand=True))]
+        self.page.show_dialog(ft.AlertDialog(
+            bgcolor=CARD, modal=True,
+            title=t("出错了", size=18, weight=ft.FontWeight.BOLD, color=INK),
+            content=ft.Container(width=760, height=430 if raw else 180,
+                                 content=ft.Column(parts, spacing=8)),
+            actions=[ft.TextButton(content=t("停止", size=13, color=MUTED),
+                                   on_click=self._err_stop),
+                     ft.OutlinedButton(content=t("重新编辑搜索配置", size=13, color=BLUE),
+                                       on_click=self._err_edit),
+                     ft.FilledButton(content=t("重跑当前对局", size=13, color=CARD),
+                                     bgcolor=BLUE, on_click=self._err_retry)]))
+
+    def _err_stop(self, e=None):
+        self.page.pop_dialog()
+        self.stop_process()
+        self.render()
+        self.page.update()
+
+    def _err_edit(self, e=None):
+        self.page.pop_dialog()
+        self._error_shown = False
+        self.goto(1)
+
+    def _err_retry(self, e=None):
+        self.page.pop_dialog()
+        self._error_shown = False
+        self.stop_process()
+        self.start_search()
+
+    def check_process(self):
+        self.check_stuck()
+        if self.proc is None:
+            return
+        rc = self.proc.poll()
+        if rc is None:
+            return
+        self.proc = None
+        if self._user_stopped:
+            return
+        st = self.status or {}
+        if rc == 0 and st.get("state") == "finished":
+            return
+        raw = self.error_text() or f"进程退出码 {rc}"
+        title, cause = classify_error(raw + f"\n(exit {rc})")
+        self.show_error(title, cause, raw)
 
     def ask_restart(self, e=None):
         if not self.running():
@@ -921,15 +1108,39 @@ class App:
                     # 状态文件可能来自上一个进程（比如 GUI 重启过），所以不依赖 running()
                     self.poll_status()
                     self.poll_log()
+                self.check_process()
+                if self.step == 1:
+                    self._adb_tick += 1
+                    if self._adb_tick >= 5:
+                        self._adb_tick = 0
+                        self.update_adb()
                 self.render()
                 self.page.update()
             except Exception:
+                if not self._error_shown:
+                    self.show_error("界面刷新出错",
+                                    "程序内部错误，可能是状态文件或日志读到一半。",
+                                    traceback.format_exc())
                 continue
 
+    def update_adb(self):
+        ok, text = backend.adb_devices()
+        self.adb_dot.bgcolor = GREEN if ok else RED
+        self.adb_text.value = text
+        self.adb_text.color = "#166534" if ok else RED
+        self.adb_pill.bgcolor = GREEN_BG if ok else "#FEF2F2"
+
     def poll_status(self):
+        if self._stopped_local:
+            return
         out = backend.resolve_output_dir(self.cfg)
         st = backend.read_status(out)
         if st:
+            if st.get("state") == "searching" and self.proc is None:
+                upd = parse_dt(st.get("updated_at"))
+                if upd and (datetime.now() - upd).total_seconds() > 90:
+                    st["state"] = "stopped"
+                    st["stopped_at"] = st.get("updated_at")
             self.status = st
         if self.proc is not None and self.proc.poll() is not None and self.status is None:
             self.status = {"state": "stopped",
@@ -946,7 +1157,8 @@ class App:
                 color = AMBER
             elif " E " in line:
                 color = RED
-            self.log_lines.append(ft.Text(line, size=11, color=color, **MONO))
+            self.log_lines.append(ft.Text(line, size=11, color=color, selectable=True,
+                                          **MONO))
         if len(self.log_lines) > 400:
             self.log_lines = self.log_lines[-400:]
 
@@ -1002,9 +1214,10 @@ class App:
         done = st.get("done", 0)
         skipped = st.get("skipped", 0)
         current = st.get("current", 0)
-        left = max(total - done - skipped - (1 if current else 0), 0)
-
         state = st.get("state")
+        active_now = 1 if (current and state == "searching") else 0
+        left = max(total - done - skipped - active_now, 0)
+        self.btn_stop.disabled = not self.running()
         if state == "finished":
             self.s_head.value = f"搜索已完成，共 {total} 次"
         elif state == "stopped":
@@ -1028,13 +1241,13 @@ class App:
         else:
             self.s_eta.value = "第一次还没跑完，暂时算不出总耗时" if total else ""
 
-        segs = [("#B7BEC9", skipped), (GREEN, done), (BLUE, 1 if current else 0),
+        segs = [("#B7BEC9", skipped), (GREEN, done), (BLUE, active_now),
                 ("#E1E4E9", left)]
         self.bar.controls = [ft.Container(expand=c, height=16, bgcolor=col)
                              for col, c in segs if c > 0]
         self.legend.controls = [self.legend_item("#B7BEC9", f"跳过 {skipped}"),
                                 self.legend_item(GREEN, f"已完成 {done}"),
-                                self.legend_item(BLUE, f"正在跑 {1 if current else 0}"),
+                                self.legend_item(BLUE, f"正在跑 {active_now}"),
                                 self.legend_item("#E1E4E9", f"还没跑 {left}")]
 
         params = st.get("params") or {}
@@ -1062,7 +1275,7 @@ class App:
                 node["circle"].bgcolor, node["circle"].border = BLUE, ft.Border.all(3, "#BFDBFE")
                 node["icon"].color, node["icon"].size = CARD, 16
                 node["name"].color = BLUE
-                node["time"].value = "进行中"
+                node["time"].value = "进行中" if state == "searching" else "已停止"
             else:
                 node["circle"].bgcolor, node["circle"].border = CARD, ft.Border.all(2, LINE)
                 node["icon"].color = FAINT
@@ -1084,9 +1297,13 @@ class App:
 
         stage_name = st.get("stage")
         started = parse_dt(st.get("stage_started_at"))
-        elapsed = (datetime.now() - started).total_seconds() if started else 0
+        ref = datetime.now()
+        if st.get("state") != "searching":
+            ref = parse_dt(st.get("stopped_at") or st.get("updated_at")) or ref
+        elapsed = (ref - started).total_seconds() if started else 0
         targets = st.get("targets") or {}
         temps = st.get("temps") or {}
+        stopped = st.get("state") != "searching"
 
         if stage_name == "charge":
             pct = st.get("battery")
@@ -1100,7 +1317,8 @@ class App:
                        spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                 ft.ProgressBar(value=(pct or 0) / 100, height=10, color=GREEN,
                                bgcolor=TRACK, border_radius=5),
-                t("屏幕已关闭充电中。充满后自动进入下一步。", size=12, color=MUTED),
+                t("充电阶段被中断。" if stopped else
+                  "屏幕已关闭充电中。充满后自动进入下一步。", size=12, color=MUTED),
             ], spacing=10)
 
         if stage_name in ("warmup", "ready", "cut"):
@@ -1117,9 +1335,10 @@ class App:
                     ft.Container(expand=True),
                     t("已达成" if ok else f"还差 {abs(cur - tgt):.1f}℃", size=11,
                       color=GREEN if ok else AMBER)], spacing=10))
-            hint = {"warmup": "回放以 4x 播放把手机烧热；温度到目标以上后进入冷却。",
-                    "ready": "游戏已退出，等温度降到目标区间就自动开始。",
-                    "cut": "温度已达标，正在断开充电并校验电池电流。"}[stage_name]
+            hint = ({"warmup": "回放以 4x 播放把手机烧热；温度到目标以上后进入冷却。",
+                     "ready": "游戏已退出，等温度降到目标区间就自动开始。",
+                     "cut": "温度已达标，正在断开充电并校验电池电流。"}[stage_name]
+                    if not stopped else "这一步被中断了。")
             return ft.Column([
                 ft.Row([t({"warmup": "正在热机", "ready": "正在冷却",
                            "cut": "正在断电测量"}[stage_name], size=13, color=INK),
@@ -1131,12 +1350,14 @@ class App:
         dur = st.get("run_duration") or 600
         secs = int(min(elapsed, dur))
         return ft.Column([
-            ft.Row([t("正在录制", size=13), ft.Container(expand=True),
+            ft.Row([t("正在录制" if st.get("state") == "searching" else "已停止",
+                      size=13), ft.Container(expand=True),
                     t(f"{secs // 60}:{secs % 60:02d} / {dur // 60}:00", size=18,
                       weight=ft.FontWeight.W_600)]),
             ft.ProgressBar(value=min(secs / max(dur, 1), 1), height=10, color=BLUE,
                            bgcolor=TRACK, border_radius=5),
-            t("已切断充电（电池单独供电），回放对局正在自动操作。录满设定时长后停止并保存；"
+            t("这次录制被中断，不会计入结果。" if stopped else
+              "已切断充电（电池单独供电），回放对局正在自动操作。录满设定时长后停止并保存；"
               "统计从对局第 30 秒开始，前面加载和参数下发不计入。", size=12, color=MUTED),
         ], spacing=10)
 

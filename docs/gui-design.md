@@ -58,6 +58,31 @@ src/status.py       CLI 侧写进度（GUI_STATUS=1 时才启用）
   `jank_s/jank/jank_l` 在 `report.py` 里是**帧数**（gap > 12/16.67/125ms 的帧），不是每秒次数，
   界面统一标「帧」。
 
+## 错误处理
+
+原则：任何失败都要在界面上说清楚，不能只剩一行日志。
+
+- **启动前**：`adb devices` 查一次，没有已授权设备就不启动子进程，直接弹窗说原因。
+- **运行中**：状态文件里的阶段不是录制、且 3 分钟没更新，同时日志里有
+  `no devices` / `device offline` / `unauthorized`，判定为卡在重试，弹窗提示（10 分钟最多一次）。
+- **进程退出**：非 0 退出码且状态不是 `finished`，读取 `grid_search.log` 与
+  `.gui/stdout.log` 的末尾，优先取最后一段 `Traceback`，按关键字归类（设备、权限、配置、缺文件）。
+- **界面自身异常**：`ticker` 和结果分析线程里的异常同样走弹窗，附完整 traceback。
+
+弹窗固定三个出口：停止 / 重新编辑搜索配置 / 重跑当前对局（重跑会重新过一遍前置检查）。
+
+## 字体
+
+界面字体是提交进仓库的子集（`src/gui/assets/fonts/cjk3.otf`），因为 Windows 构建机不一定有
+Noto CJK。改了界面文案后要重新生成：
+
+```bash
+uv run python scripts/gen_gui_font.py
+```
+
+脚本会扫描 `src/gui/app.py`、`gui_backend.py`、`status.py` 里的所有非 ASCII 字符。换文件名是
+为了绕开缓存，换完同步 `page.fonts`。漏字的症状是某些汉字直接消失（不是显示成方块）。
+
 ## 打包
 
 `scripts/build.ps1` 只产出一个 `fpsgo-optim-gui.exe`（`flet pack`，底层是 PyInstaller）。

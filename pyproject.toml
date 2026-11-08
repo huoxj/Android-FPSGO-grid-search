@@ -24,6 +24,7 @@ gui = [
     "tomlkit>=0.13.3",
 ]
 dev = [
+    "fonttools>=4.60.1",
     "pyarmor>=9.2.7",
     "pyinstaller>=6.22.3",
 ]

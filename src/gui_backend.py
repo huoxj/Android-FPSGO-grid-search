@@ -17,7 +17,8 @@ from pathlib import Path
 
 import tomlkit
 
-ROOT = Path(__file__).resolve().parents[2]
+# src/gui_backend.py -> parents[0]=src, parents[1]=仓库根
+ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 # checkpoint 的元数据文件名：20251108_123456.json
 RUN_META_RE = re.compile(r"^\d{8}_\d{6}\.json$")
@@ -126,6 +127,29 @@ def run_counts(output_dir: str) -> int:
 def resume_info(output_dir: str, total: int) -> dict:
     done = run_counts(output_dir)
     return {"done": done, "total": total, "incomplete": 0 < done < total}
+
+
+def adb_devices() -> tuple[bool, str]:
+    """(是否有已授权设备, 状态说明)。直接问 adb，别猜。"""
+    try:
+        res = subprocess.run(["adb", "devices"], capture_output=True, text=True,
+                             timeout=8)
+    except FileNotFoundError:
+        return False, "未找到 adb"
+    except (subprocess.TimeoutExpired, OSError):
+        return False, "adb 无响应"
+    states = []
+    for line in (res.stdout or "").splitlines()[1:]:
+        parts = line.split()
+        if len(parts) >= 2:
+            states.append(parts[1])
+    if "device" in states:
+        return True, "adb 已连接"
+    if "unauthorized" in states:
+        return False, "手机未授权"
+    if "offline" in states:
+        return False, "设备离线"
+    return False, "未连接手机"
 
 
 # ── 搜索进程 ────────────────────────────────────────────────────────────
