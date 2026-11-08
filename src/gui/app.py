@@ -483,6 +483,33 @@ class App:
                            tooltip=f"{P[value][2]}" if value in P else None,
                            on_select=self.on_form_change)
 
+    @staticmethod
+    def row_hint(dds):
+        """值输入框的 placeholder：这一行参数的默认值。"""
+        keys = [dd.value for dd in dds]
+        return "/".join(str(P[k][1]) for k in keys) if len(keys) > 1 else str(P[keys[0]][1])
+
+    def on_param_changed(self, row, idx):
+        """下拉换参数：这一列回到新参数的默认值，别沿用上一个参数的数。"""
+        dds = row.data["dds"]
+        default = P[dds[idx].value][1]
+        n = len(dds)
+        if n == 1:
+            row.data["tf"].value = str(default)
+        else:
+            pairs = self.parse_pairs(row.data["tf"].value, n)
+            if not pairs:
+                pairs = [tuple(P[dd.value][1] for dd in dds)]
+            fixed = []
+            for pair in pairs:
+                pair = list(pair)
+                pair[idx] = default
+                fixed.append(pair)
+            row.data["tf"].value = ", ".join("/".join(str(v) for v in p) for p in fixed)
+        row.data["tf"].hint_text = self.row_hint(dds)
+        row.data["tf"].update()
+        self.refresh_config()
+
     def used_params(self):
         out = set()
         for r in self.grid_col.controls:
@@ -493,9 +520,7 @@ class App:
         dds = [self.param_dd(k) for k in keys]
         text = ", ".join("/".join(str(v) for v in pair) for pair in vals)
         tf = ft.TextField(value=text, expand=True, dense=True, text_size=13, **TF,
-                          hint_text=("每组用 / 连接，组间用逗号。例如 2800000/2500000, "
-                                     "2800000/2660000" if len(dds) > 1
-                                     else "值之间用逗号。例如 100, 150"),
+                          hint_text=self.row_hint(dds),
                           hint_style=ft.TextStyle(color=FAINT, size=12, font_family="CJK"),
                           on_change=self.on_form_change)
         reset = ft.IconButton(icon=ft.Icons.REFRESH, icon_size=17, tooltip="恢复默认值")
@@ -508,6 +533,8 @@ class App:
         row.data = dict(dds=dds, tf=tf)
 
         def rebuild():
+            for i, dd in enumerate(row.data["dds"]):
+                dd.on_select = lambda e, idx=i: self.on_param_changed(row, idx)
             bits = []
             for i, dd in enumerate(row.data["dds"]):
                 if i:
@@ -535,14 +562,14 @@ class App:
             old_n = len(row.data["dds"])
             row.data["dds"].append(self.param_dd(free))
             if old_n == 1:
-                ints = self.parse(self.grid_col.controls[
-                    self.grid_col.controls.index(row)].data["tf"].value) or []
+                ints = self.parse(row.data["tf"].value) or [P[row.data["dds"][0].value][1]]
                 row.data["tf"].value = ", ".join(f"{v}/{P[free][1]}" for v in ints)
             else:
                 pairs = self.parse_pairs(row.data["tf"].value, old_n)
                 if pairs:
                     row.data["tf"].value = ", ".join(
                         "/".join([*(str(v) for v in pair), str(P[free][1])]) for pair in pairs)
+            row.data["tf"].hint_text = self.row_hint(row.data["dds"])
             rebuild()
             self.refresh_config()
 
@@ -556,6 +583,7 @@ class App:
                 row.data["tf"].value = (", ".join(str(p[0]) for p in pairs) if n == 1
                                         else ", ".join("/".join(str(v) for v in p[:n])
                                                         for p in pairs))
+            row.data["tf"].hint_text = self.row_hint(row.data["dds"])
             rebuild()
             self.refresh_config()
 
@@ -1244,8 +1272,7 @@ class App:
                 color = AMBER
             elif " E " in line:
                 color = RED
-            self.log_lines.append(ft.Text(line, size=11, color=color, selectable=True,
-                                          **MONO))
+            self.log_lines.append((line, color))
         if len(self.log_lines) > 400:
             self.log_lines = self.log_lines[-400:]
 
@@ -1390,8 +1417,17 @@ class App:
 
         self.status_box.content = self.stage_panel(st, active)
         if self._log_drawn != len(self.log_lines):
-            self.log_list.controls = self.log_lines
+            self.log_list.controls = [self.log_text()]
             self._log_drawn = len(self.log_lines)
+
+    def log_text(self):
+        """一个控件装整份日志，才能拖着跨行选中复制。"""
+        return ft.Text(selectable=True, spans=[
+            ft.TextSpan(text=line + "\n", style=ft.TextStyle(
+                font_family="Consolas",
+                font_family_fallback=["CJK", "Courier New", "monospace"],
+                size=11, color=color))
+            for line, color in self.log_lines])
 
     def stage_panel(self, st, active):
         if active < 0:

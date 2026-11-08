@@ -17,7 +17,8 @@ class CheckpointMgr:
         # Walk through the dir, deserialize and collect all grid run's json meta
         files = os.listdir(path)
         for file in files:
-            if not file.endswith(".json"):
+            # 分析阶段会在同目录写 <trace>.metrics.json，不是 run 元数据
+            if not file.endswith(".json") or file.endswith(".metrics.json"):
                 continue
             try:
                 meta = GridRunMeta.model_validate_json(
