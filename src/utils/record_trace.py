@@ -811,7 +811,8 @@ def adb(*args, stdin=devnull, stdout=None, stderr=None):
     # on exit. Unsupported on Windows.
     setpgrp = lambda: os.setpgrp()
   proc = subprocess.Popen(
-      cmd, stdin=stdin, stdout=stdout, stderr=stderr, preexec_fn=setpgrp)
+      cmd, stdin=stdin, stdout=stdout, stderr=stderr, preexec_fn=setpgrp,
+      creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
   procs.append(proc)
   return proc
 

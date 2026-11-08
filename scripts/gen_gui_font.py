@@ -14,7 +14,12 @@ from pathlib import Path
 from fontTools.subset import main as subset_main
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCES = [ROOT / "src/gui/app.py", ROOT / "src/gui_backend.py", ROOT / "src/status.py"]
+SOURCES = [
+    ROOT / "src/gui/app.py",          # 界面文案
+    ROOT / "src/gui_backend.py",
+    ROOT / "src/status.py",
+    ROOT / "src/models/fpsgo_params.py",   # 参数下拉的 tooltip 说明
+]
 NOTO = Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc")
 OUT = ROOT / "src/gui/assets/fonts/cjk3.otf"
 PUNCT = "·×—…℃“”‘’、。，：；！？（）《》【】→←↑↓≥≤"

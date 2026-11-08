@@ -365,10 +365,19 @@ class App:
                  ft.Row([t("这个目录里有记录时，重新进来会提示你继续上次没跑完的搜索。",
                            size=12, color=MUTED)])),
             card(section("配置搜索参数",
-                         "每行一条轴。取值填多个，程序会把它们组合起来逐个试；同一行放多个参数就一起变",
+                         "每行一条轴。程序把各行的取值做全组合，逐个跑",
                          extra=self.grid_pill),
-                 t("每行一条轴。同一行放多个参数就一起变，取值按顺序用 / 连接。",
-                   size=12, color=MUTED),
+                 ft.Row([t("一行一个参数：值之间用逗号。例如 ", size=12, color=MUTED),
+                         t("100, 150", size=12, color=INK, **MONO), t("（跑 2 次）",
+                                                                    size=12, color=MUTED)],
+                        wrap=True, spacing=4),
+                 ft.Row([t("一行多个参数一起变：每组里用 / 连接，组之间用逗号。例如 ",
+                           size=12, color=MUTED),
+                         t("2800000/2500000, 2800000/2660000", size=12, color=INK, **MONO),
+                         t("（两个参数各自取这两组值）", size=12, color=MUTED)],
+                        wrap=True, spacing=4),
+                 ft.Row([t("各行之间是全组合：上面两行放一起就是 2 × 2 = 4 个组合。",
+                           size=12, color=MUTED)], wrap=True),
                  self.grid_col,
                  ft.Row([ft.TextButton(content=t("＋ 添加参数", size=13, color=BLUE),
                                        on_click=self.on_add_axis),
@@ -477,8 +486,9 @@ class App:
         dds = [self.param_dd(k) for k in keys]
         text = ", ".join("/".join(str(v) for v in pair) for pair in vals)
         tf = ft.TextField(value=text, expand=True, dense=True, text_size=13, **TF,
-                          hint_text=("每对用 / 连接，例如 1/1" if len(dds) > 1
-                                     else "例如 100, 150"),
+                          hint_text=("每组用 / 连接，组间用逗号。例如 2800000/2500000, "
+                                     "2800000/2660000" if len(dds) > 1
+                                     else "值之间用逗号。例如 100, 150"),
                           hint_style=ft.TextStyle(color=FAINT, size=12, font_family="CJK"),
                           on_change=self.on_form_change)
         reset = ft.IconButton(icon=ft.Icons.REFRESH, icon_size=17, tooltip="恢复默认值")

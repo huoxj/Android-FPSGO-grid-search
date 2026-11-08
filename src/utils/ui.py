@@ -3,14 +3,15 @@ import os
 import cv2
 import numpy as np
 
-from utils.adb import adb_shell
+from utils.adb import NO_WINDOW, adb_shell
 
 UiSpec = tuple[cv2.typing.MatLike, tuple[int, int, int, int], float]
 
 def shot():
     raw = subprocess.run(
         ["adb", "exec-out", "screencap"],
-        capture_output=True, timeout=20, check=True
+        capture_output=True, timeout=20, check=True,
+        creationflags=NO_WINDOW,
     ).stdout
     w, h, _, _ = np.frombuffer(raw[:16], dtype="<u4")
     img = np.frombuffer(
