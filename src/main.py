@@ -95,6 +95,8 @@ def main():
     # Machine-readable progress for the GUI (no-op unless GUI_STATUS=1).
     run_status.init(config.output_dir, len(run_queue), config.repeats,
                     len(grid), seed)
+    # GUI 点停止时先熄屏/恢复充电再退出，等价于 Ctrl+C 的 finally
+    run_status.on_stop(lambda: _teardown_safe(device_mgr, config))
 
     log.info("%d combos x %d groups = %d runs (shuffle seed %d)",
              len(grid), config.repeats, len(run_queue), seed)
@@ -348,6 +350,13 @@ def _teardown(device_mgr: DeviceMgr, config) -> None:
         log.warning("teardown step failed: %s", e)
     if errors and not in_flight:
         raise errors[0]
+
+
+def _teardown_safe(device_mgr: DeviceMgr, config) -> None:
+    try:
+        _teardown(device_mgr, config)
+    except Exception as e:
+        log.warning("stop teardown failed: %s", e)
 
 
 def _repair(device_mgr: DeviceMgr, config) -> None:

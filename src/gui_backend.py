@@ -11,6 +11,8 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+
+from utils.adb import NO_WINDOW
 import sys
 import tomllib
 from pathlib import Path
@@ -133,7 +135,7 @@ def adb_devices() -> tuple[bool, str]:
     """(是否有已授权设备, 状态说明)。直接问 adb，别猜。"""
     try:
         res = subprocess.run(["adb", "devices"], capture_output=True, text=True,
-                             timeout=8)
+                             timeout=8, creationflags=NO_WINDOW)
     except FileNotFoundError:
         return False, "未找到 adb"
     except (subprocess.TimeoutExpired, OSError):
@@ -163,13 +165,22 @@ def cli_command() -> list[str]:
 def start_search(output_dir: str) -> subprocess.Popen:
     out = Path(output_dir) / ".gui"
     out.mkdir(parents=True, exist_ok=True)
+    (out / "stop").unlink(missing_ok=True)      # 清掉上次残留的停止请求
     env = os.environ.copy()
     env["GUI_STATUS"] = "1"
     stdout = open(out / "stdout.log", "a", encoding="utf-8")
     return subprocess.Popen(
         cli_command(), cwd=str(Path.cwd()), env=env,
         stdout=stdout, stderr=subprocess.STDOUT,
+        creationflags=NO_WINDOW,
     )
+
+
+def request_stop(output_dir: str) -> None:
+    """请后端自己收尾退出（熄屏、恢复充电），而不是硬杀。"""
+    gui = Path(output_dir) / ".gui"
+    gui.mkdir(parents=True, exist_ok=True)
+    (gui / "stop").write_text("1", encoding="utf-8")
 
 
 def stop_search(proc: subprocess.Popen) -> None:

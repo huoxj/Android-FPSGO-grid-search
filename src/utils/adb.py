@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+import os
 import subprocess
 from time import sleep
 
@@ -7,6 +8,10 @@ from errors import Suspend
 
 class AdbOffline(Suspend):
     """adb returned nothing - device disconnected / adbd dead."""
+
+
+# Windows 上每次 spawn 控制台程序都会闪一个黑窗；GUI 里必须藏起来。
+NO_WINDOW = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 
 
 # adbd serializes commands: while a 1.3GB trace is being pulled every other
@@ -20,7 +25,8 @@ def _device_state() -> str:
     """'online' / 'offline' / 'unknown' (the check itself timed out)."""
     try:
         r = subprocess.run(
-            ["adb", "devices"], capture_output=True, text=True, timeout=120
+            ["adb", "devices"], capture_output=True, text=True, timeout=120,
+            creationflags=NO_WINDOW,
         )
     except subprocess.TimeoutExpired:
         return "unknown"
@@ -40,7 +46,8 @@ def adb(cmd: str) -> str:
         try:
             result = subprocess.run(
                 ["adb", *cmd.split()],
-                capture_output=True, text=True, timeout=_ADB_TIMEOUT
+                capture_output=True, text=True, timeout=_ADB_TIMEOUT,
+                creationflags=NO_WINDOW,
             )
             break
         except FileNotFoundError as e:
@@ -79,7 +86,8 @@ def adb_follow(
         ["adb", *cmd.split()],
         stdout=stdout, stderr=stderr,
         text=True, bufsize=1,
-        errors="replace"
+        errors="replace",
+        creationflags=NO_WINDOW,
     )
     try:
         yield p

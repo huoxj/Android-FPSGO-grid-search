@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import threading
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -29,6 +30,8 @@ _SAMPLE_INTERVAL = 5
 
 _writer: "StatusWriter | None" = None
 _lock = threading.Lock()
+_stop_handler = None
+_MAIN_THREAD_ID = threading.main_thread().ident
 
 
 def _now() -> str:
@@ -76,9 +79,11 @@ class StatusWriter:
             "error": None,
         }
         self._stop = threading.Event()
+        self._stop_file = self.path.parent / "stop"
         self._sampler = threading.Thread(target=self._sample_loop, daemon=True)
         self._write()
         self._sampler.start()
+        threading.Thread(target=self._watch_stop, daemon=True).start()
 
     # ── 写盘 ────────────────────────────────────────────────────────────
     def _write(self) -> None:
@@ -132,6 +137,32 @@ class StatusWriter:
         if self.state["state"] == "searching":
             self._patch(state="stopped")
 
+    # ── 停止 ────────────────────────────────────────────────────────────
+    def _watch_stop(self) -> None:
+        """GUI 点停止 = 写 .gui/stop。这里收尾（熄屏、恢复充电）再退出。
+
+        不能靠 terminate()：Windows 上是硬杀，finally 不会跑，手机就亮着。
+        """
+        while not self._stop.wait(1.0):
+            if not self._stop_file.exists():
+                continue
+            try:
+                self._stop_file.unlink()
+            except OSError:
+                pass
+            log.info("stop requested by GUI: tearing down, then exiting")
+            self._patch(state="stopped", stopped_at=_now(), error="已手动停止")
+            self._stop.set()
+            handler = _stop_handler
+            if handler is not None:
+                try:
+                    handler()
+                except Exception as e:
+                    log.warning("stop teardown failed: %s", e)
+            _interrupt_main()
+            time.sleep(3)      # 给主线程走完 finally 的机会
+            os._exit(0)
+
     # ── 采样 ────────────────────────────────────────────────────────────
     def _sample_loop(self) -> None:
         from utils import device_utils as du
@@ -160,6 +191,23 @@ def init(output_dir: str, total: int, repeats: int, combos: int,
     except Exception as e:
         log.warning("cannot start gui status writer: %s", e)
         _writer = None
+
+
+def on_stop(handler) -> None:
+    """注册停止时的收尾动作（main.py 里给 _teardown）。"""
+    global _stop_handler
+    _stop_handler = handler
+
+
+def _interrupt_main() -> None:
+    """主线程可能卡在 sleep/backoff 里，用异步异常把它叫醒。"""
+    try:
+        import ctypes
+
+        ctypes.pythonapi.PyThreadState_SetAsyncExc(
+            ctypes.c_ulong(_MAIN_THREAD_ID), ctypes.py_object(KeyboardInterrupt))
+    except Exception:
+        pass
 
 
 def _call(name: str, *args) -> None:

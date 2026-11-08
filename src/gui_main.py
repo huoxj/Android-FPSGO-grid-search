@@ -14,7 +14,10 @@ def main():
     if "--cli" in sys.argv:
         sys.argv.remove("--cli")
         from main import main as cli_main
-        cli_main()
+        try:
+            cli_main()
+        except KeyboardInterrupt:     # GUI 停止信号：收尾已跑完，不用打 traceback
+            raise SystemExit(130)
     else:
         run()
 

@@ -202,6 +202,7 @@ class App:
         self._user_stopped = False
         self._stopped_local = False
         self._replay_ack = False
+        self._stopping = False
         self._last_err_dialog = datetime.min
         self._adb_tick = 99
 
@@ -673,7 +674,10 @@ class App:
         self.out_tf.value = f"{self.out_tf.value.rstrip('/')}-{stamp}"
         self.out_tf.update()
         self.refresh_config()
-        self.start_search()
+        if self.running():
+            self.stop_process(then=self.start_search)
+        else:
+            self.start_search()
 
     def show_preview(self, e):
         rows = self.grid_rows_now()
@@ -885,8 +889,7 @@ class App:
 
     def _stop_and_start(self, e=None):
         self.page.pop_dialog()
-        self.stop_process()
-        self.start_search()
+        self.stop_process(then=self.start_search)
 
     def start_search(self):
         self.start_error = None
@@ -950,10 +953,7 @@ class App:
             return
         self.goto(2)
 
-    def stop_process(self):
-        if self.proc is not None:
-            backend.stop_search(self.proc)
-            self.proc = None
+    def _mark_stopped(self):
         self._user_stopped = True
         self._stopped_local = True
         st = self.status or {}
@@ -962,10 +962,32 @@ class App:
         st["error"] = "已手动停止"
         self.status = st
 
-    def stop_search(self, e=None):
-        self.stop_process()
+    def stop_process(self, then=None):
+        """请后端自己收尾（熄屏、恢复充电）再退出，等不到才硬杀。"""
+        self.page.run_task(self._stop_flow, then)
+
+    async def _stop_flow(self, then=None):
+        self._user_stopped = True      # 正常停止，不要让 check_process 弹错误
+        self._stopping = True
+        proc = self.proc
+        if proc is not None and proc.poll() is None:
+            backend.request_stop(backend.resolve_output_dir(self.cfg))
+            for _ in range(120):
+                if proc.poll() is not None:
+                    break
+                await asyncio.sleep(1)
+            else:
+                backend.stop_search(proc)
+        self.proc = None
+        self._stopping = False
+        self._mark_stopped()
         self.render()
         self.page.update()
+        if then is not None:
+            then()
+
+    def stop_search(self, e=None):
+        self.stop_process()
 
     # ---- 错误
     def check_stuck(self):
@@ -1035,8 +1057,6 @@ class App:
     def _err_stop(self, e=None):
         self.page.pop_dialog()
         self.stop_process()
-        self.render()
-        self.page.update()
 
     def _err_edit(self, e=None):
         self.page.pop_dialog()
@@ -1046,8 +1066,7 @@ class App:
     def _err_retry(self, e=None):
         self.page.pop_dialog()
         self._error_shown = False
-        self.stop_process()
-        self.start_search()
+        self.stop_process(then=self.start_search)
 
     def check_process(self):
         self.check_stuck()
@@ -1082,8 +1101,7 @@ class App:
 
     def _restart(self, e=None):
         self.page.pop_dialog()
-        self.stop_process()
-        self.start_search()
+        self.stop_process(then=self.start_search)
 
     def goto(self, step):
         self.step = step
@@ -1226,6 +1244,9 @@ class App:
             self.s_head.value = (f"正在第 {current} 次，共 {total} 次" if current
                                  else "等待搜索进程...")
         self.s_stats.value = f"跳过 {skipped} · 已完成 {done} · 还没跑 {left}" if total else ""
+        if self._stopping:
+            self.s_head.value = "正在停止…"
+            self.s_stats.value = "等程序熄屏、恢复充电后退出"
         self.search_error.value = (self.start_error or st.get("error") or "")
 
         started = parse_dt(st.get("started_at"))

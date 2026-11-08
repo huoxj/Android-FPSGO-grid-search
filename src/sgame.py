@@ -13,7 +13,7 @@ from errors import ConfigError, Kind, TransientError
 from utils.perfetto import start_perfetto_tracing
 from utils.fpsgo import read_fpsgo_fps, apply_params
 from utils.thermal import apply_policy as apply_thermal_policy
-from utils.adb import adb_follow, adb_shell
+from utils.adb import NO_WINDOW, adb_follow, adb_shell
 from utils.wait import wait_until
 from utils import ui
 
@@ -398,6 +398,7 @@ class _LogWatch:
             ["adb", "logcat", "-v", "monotonic", "-T", "1", "-s", tag],
             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
             text=True, errors="replace", bufsize=1,
+            creationflags=NO_WINDOW,
         )
         threading.Thread(target=self._pump, daemon=True).start()
 

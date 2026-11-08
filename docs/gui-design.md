@@ -71,6 +71,16 @@ src/status.py       CLI 侧写进度（GUI_STATUS=1 时才启用）
 
 弹窗固定三个出口：停止 / 重新编辑搜索配置 / 重跑当前对局（重跑会重新过一遍前置检查）。
 
+## 停止与后台窗口
+
+- **停止 = 请后端自己收尾**。GUI 写 `output_dir/.gui/stop`，CLI 里由 `status.py` 的看门狗线程
+  （只在 `GUI_STATUS=1` 时存在）调用 `main.py` 注册的 `_teardown`：熄屏 + 恢复充电，然后退出。
+  GUI 最多等 120 秒，等不到才 `terminate()` 硬杀。直接 terminate 只会让手机亮着、充电通路断着，
+  和 Ctrl+C 的行为不一样。
+- **不留黑窗**。Windows 上每次 spawn 控制台程序都会闪一下，而采样阶段几秒一次 adb。
+  `utils/adb.py` 定义 `NO_WINDOW = subprocess.CREATE_NO_WINDOW`，所有 `adb` 调用（含
+  `sgame.py` 里直接起的 logcat）和 GUI 起子进程都带上它。
+
 ## 字体
 
 界面字体是提交进仓库的子集（`src/gui/assets/fonts/cjk3.otf`），因为 Windows 构建机不一定有
