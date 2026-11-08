@@ -66,7 +66,7 @@ CLI 通过同一个 exe 的 `--cli` 模式内嵌，不再单独打 `fpsgo-optim.
 （缓存在 `~/.flet/client`），运行时从 exe 里解包，不联网。
 
 ```powershell
-uv run --group gui flet pack src\gui_main.py -y -n fpsgo-optim-gui --distpath dist -- `
+uv run --group gui python scripts\pack_gui.py src\gui_main.py -y -n fpsgo-optim-gui --distpath dist -- `
   --paths src `
   --hidden-import webui.server `
   --collect-data perfetto `
@@ -74,6 +74,9 @@ uv run --group gui flet pack src\gui_main.py -y -n fpsgo-optim-gui --distpath di
   --add-data "src\gui\assets;assets"
 ```
 
+- `scripts/pack_gui.py` 是 `flet pack` 的薄包装：flet-cli 1.1.2 在 Windows 上用
+  `open(exe, "ab", encoding="utf-8")` 恢复 exe overlay，Python 3 直接 ValueError，
+  所以先在站点包里把这一行改掉（幂等）再调 CLI。上游升级后如果这行没了，脚本会报错提醒删掉。
 - `--hidden-import webui.server`：结果页是函数内延迟导入，PyInstaller 静态分析看不到，
   漏了打包能成功但点结果页会 ModuleNotFoundError。
 - 字体：frozen 时把 `FLET_ASSETS_DIR` 指到 `_MEIPASS/assets`，否则中文是方块。

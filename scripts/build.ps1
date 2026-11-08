@@ -25,12 +25,18 @@ if (-not $Version) { $Version = 'dev' }
 $Target = "windows-$($env:PROCESSOR_ARCHITECTURE.ToLower())"
 
 Remove-Item -Recurse -Force dist, build -ErrorAction SilentlyContinue
-uv run --group gui flet pack src\gui_main.py -y -n $Name --distpath dist -- `
+# pack_gui.py 只是 flet pack 的包装：先修 flet-cli 1.1.2 在 Windows 上的
+# `open(..., "ab", encoding=...)` bug，再调同一个 CLI。
+uv run --group gui python scripts\pack_gui.py src\gui_main.py -y -n $Name --distpath dist -- `
   --paths src `
   --hidden-import webui.server `
   --collect-data perfetto `
   --collect-data flet_web `
   --add-data "src\gui\assets;assets"
+
+if (-not (Test-Path "dist\$Name.exe")) {
+  Write-Host "build failed: dist\$Name.exe not found"; Pop-Location; exit 1
+}
 
 # 3. Create package
 $Pkg = "dist\${Name}-${Version}-${Target}"
