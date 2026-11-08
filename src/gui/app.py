@@ -305,20 +305,26 @@ class App:
             self.grid_col.controls.append(self.axis_row(row["keys"], row["vals"]))
 
         self.banner = ft.Container(visible=False)
-        self.banner_text = t("", size=12, color="#92400E")
+        self.banner_icon = ft.Icon(ft.Icons.WARNING_AMBER, size=20, color=AMBER)
+        self.banner_title = t("", size=13, weight=ft.FontWeight.W_600)
+        self.banner_text = t("", size=12)
+        self.btn_resume = ft.FilledButton(content=t("继续上次搜索", size=12, color=CARD),
+                                          bgcolor="#B45309", on_click=self.on_resume)
+        self.btn_fresh = ft.TextButton(content=t("换个目录重新开始", size=12, color=MUTED),
+                                       on_click=self.on_fresh_dir)
+        self.btn_stop_here = ft.OutlinedButton(
+            content=t("停止当前搜索", size=12, color=RED), icon=ft.Icons.STOP_CIRCLE,
+            height=34, style=ft.ButtonStyle(padding=ft.Padding(8, 0, 10, 0)),
+            on_click=self.stop_search)
+        self.btn_go_running = ft.TextButton(content=t("回到进行中搜索", size=12, color=BLUE),
+                                            on_click=lambda e: self.goto(2))
+        self.banner_actions = ft.Row([], spacing=8)
         self.banner.content = ft.Row([
-            ft.Icon(ft.Icons.WARNING_AMBER, size=20, color=AMBER),
-            ft.Column([t("这个目录里已有跑过的记录", size=13,
-                        weight=ft.FontWeight.W_600, color="#92400E"), self.banner_text],
-                      spacing=2),
+            self.banner_icon,
+            ft.Column([self.banner_title, self.banner_text], spacing=2),
             ft.Container(expand=True),
-            ft.FilledButton(content=t("继续上次搜索", size=12, color=CARD), bgcolor="#B45309",
-                            on_click=self.on_resume),
-            ft.TextButton(content=t("换个目录重新开始", size=12, color=MUTED),
-                          on_click=self.on_fresh_dir),
+            self.banner_actions,
         ], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER)
-        self.banner.bgcolor = AMBER_BG
-        self.banner.border = ft.Border.all(1, "#FCD34D")
         self.banner.border_radius = 12
         self.banner.padding = ft.Padding(14, 10, 12, 10)
 
@@ -652,10 +658,52 @@ class App:
         self.total_text.value = f"共 {n} 个组合 × {rep} 次 = {total} 次运行"
         info = backend.resume_info(
             backend.resolve_output_dir({"output_dir": self.out_tf.value}), total)
-        self.banner.visible = bool(info["incomplete"])
+        self.update_banner(info)
+        label = "继续搜索" if (info["done"] or self._stopped_local) else "开始搜索"
+        if self.btn_start.content.value != label:
+            self.btn_start.content = t(label, size=13, color=CARD)
+
+    def update_banner(self, info):
+        """配置页顶部：正在跑 / 已停止 / 目录里有旧记录，三种状态。"""
+        st = self.status or {}
+        if self.running():
+            self.banner.visible = True
+            self.banner.bgcolor = BLUE_BG
+            self.banner.border = ft.Border.all(1, "#BFDBFE")
+            self.banner_icon.name, self.banner_icon.color = ft.Icons.PLAY_CIRCLE_FILL, BLUE
+            self.banner_title.value = "搜索正在运行"
+            self.banner_title.color = "#1E3A8A"
+            self.banner_text.value = (f"第 {st.get('current')}/{st.get('total')} 次。"
+                                      "想改配置就先停止，改完点「继续搜索」，跑过的会自动跳过。")
+            self.banner_text.color = "#1E3A8A"
+            self.banner_actions.controls = [self.btn_go_running, self.btn_stop_here]
+            return
+        if self._stopped_local and info["done"]:
+            self.banner.visible = True
+            self.banner.bgcolor = "#F3F4F6"
+            self.banner.border = ft.Border.all(1, LINE)
+            self.banner_icon.name = ft.Icons.PAUSE_CIRCLE_OUTLINE
+            self.banner_icon.color = MUTED
+            self.banner_title.value = "搜索已停止"
+            self.banner_title.color = INK
+            self.banner_text.value = (f"这个目录已经跑了 {info['done']} 次。"
+                                      "改完配置点「继续搜索」，跑过的会自动跳过。")
+            self.banner_text.color = MUTED
+            self.banner_actions.controls = []
+            return
         if info["incomplete"]:
-            self.banner_text.value = (f"「{self.out_tf.value}」里已有 {info['done']}/{info['total']} "
-                                      "次运行。继续会跳过已经跑过的组合。")
+            self.banner.visible = True
+            self.banner.bgcolor = AMBER_BG
+            self.banner.border = ft.Border.all(1, "#FCD34D")
+            self.banner_icon.name, self.banner_icon.color = ft.Icons.WARNING_AMBER, AMBER
+            self.banner_title.value = "这个目录里已有跑过的记录"
+            self.banner_title.color = "#92400E"
+            self.banner_text.value = (f"已有 {info['done']}/{info['total']} 次运行。"
+                                      "继续会跳过已经跑过的组合。")
+            self.banner_text.color = "#92400E"
+            self.banner_actions.controls = [self.btn_resume, self.btn_fresh]
+            return
+        self.banner.visible = False
 
     # ---- 交互
     def pick_dir(self, e):
