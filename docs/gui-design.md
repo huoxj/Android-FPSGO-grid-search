@@ -60,12 +60,22 @@ src/status.py       CLI 侧写进度（GUI_STATUS=1 时才启用）
 
 ## 打包
 
-```bash
-flet build windows          # 需要 Flutter SDK
-```
+当前 `scripts/build.ps1` 只打 CLI 两个 exe，还没有 GUI 步骤。GUI 走不了 PyInstaller
+`--onefile`：Flet 桌面版底层是 Flutter，`flet build windows` 调的是 `flutter build windows`，
+需要 Flutter SDK + VS 2022 C++ 工具链，产物是**目录**（exe + DLL + data），不是单文件。
 
-产物 `fpsgo-optim-gui.exe` 与 `fpsgo-optim.exe`、`config.toml` 放同一目录：
-GUI 会优先启动同目录的 `fpsgo-optim.exe`，找不到才退回当前解释器。
+要打成「包里多一个 GUI」，两条路：
+
+1. 原生窗口：建一个独立的 app 目录（`main.py` + `assets/` + 依赖声明），构建前把
+   `src/gui`、`src/gui_backend.py`、`src/status.py`、`models/`、`webui/` 复制进去，
+   再 `flet build windows <app_dir>`，包内放 `gui\fpsgo-optim-gui.exe`（连同它的 DLL 目录）。
+2. 单 exe：只跑 web 模式（`GUI_WEB=1`），沿用现有 PyInstaller 流程，双击后开默认浏览器。
+   需要 `flet[web]` 和 `--collect-data flet_web`，没有原生窗口。
+
+两个前提（两条路都要）：
+- 依赖必须写进 `[project].dependencies` 或 app 目录的 `requirements.txt`；`flet build`
+  不认 `[dependency-groups]`。
+- 字体等资源要放在 app 目录的 `assets/` 下：打包后 `FLET_ASSETS_DIR` 会覆盖代码里传的路径。
 
 未验证项：Windows 打包没有在本机跑过（Linux 上无法产出 Windows 包）；
 真机流程的 UI 表现是用手工构造的 `status.json` 验证的，第一次真机跑需要盯一眼阶段轴。

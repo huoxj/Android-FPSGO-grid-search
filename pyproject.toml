@@ -18,7 +18,8 @@ dependencies = [
 
 [dependency-groups]
 gui = [
-    "flet>=1.1.2",
+    # [all] = flet-desktop + flet-web + flet-cli；默认的 flet 包不含桌面运行时
+    "flet[all]>=1.1.2",
     "flet-charts>=1.1.2",
     "tomlkit>=0.13.3",
 ]
