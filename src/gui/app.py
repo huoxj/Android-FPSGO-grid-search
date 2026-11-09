@@ -194,6 +194,8 @@ class App:
         self.results_error = None
         self.loading_results = False
         self.selected = None
+        self.selected_run = None
+        self.varying_keys = []
         self.visited = {self.step}
         self.group = "all"
         self.xk, self.yk = "fps", "power"
@@ -1022,6 +1024,8 @@ class App:
         out = self.cfg["output_dir"]
         self.results = None
         self.selected = None
+        self.selected_run = None
+        self.varying_keys = []
         self.status = None
         self.log_lines = []
         self.log_offset = 0
@@ -1549,6 +1553,9 @@ class App:
             ft.Row([ft.Icon(ft.Icons.INFO_OUTLINE, size=18, color=MUTED),
                     t("跑完至少一次运行后，这里会出现包络线和推荐配置。", size=13, color=MUTED)],
                    spacing=8))
+        params0 = (combos[0]["params"] if combos else {})
+        self.varying_keys = [k for k in params0
+                             if len({str(c["params"].get(k)) for c in combos}) > 1]
         reps = max(int(self.rep_tf.value or 3), 1)
         self.group_seg.segments = (
             [ft.Segment(value="all", label=t("全部", size=12))] +
@@ -1599,6 +1606,18 @@ class App:
     def combo_key(self, params):
         return tuple(sorted(params.items()))
 
+    def order_params(self, params):
+        """会变的参数排前面，看图对比的就是它们。"""
+        idx = {k: i for i, k in enumerate(self.varying_keys)}
+        return sorted((params or {}).items(),
+                      key=lambda kv: (0, idx[kv[0]]) if kv[0] in idx else (1, 0))
+
+    def param_line(self, params, limit=None, sep=" · "):
+        items = self.order_params(params)
+        if limit:
+            items = items[:limit]
+        return sep.join(f"{k} {v}" for k, v in items)
+
     def refresh_results(self):
         if not self.results:
             return
@@ -1611,8 +1630,11 @@ class App:
                    combos[0] if combos else None)
         self.rec_row.controls = [self.rec_card(c, i, c.get("on_front"))
                                  for i, c in enumerate(self.pick_cards()[:3])]
-        self.chart_holder.content = self.build_chart(runs, front, sel)
-        self.detail.content = self.build_detail(sel) if sel else ft.Container()
+        sel_run = next((r for r in self.results[0]
+                        if r.get("time_iso") == self.selected_run), None)
+        self.chart_holder.content = self.build_chart(runs, front, sel, sel_run)
+        self.detail.content = (self.build_run_detail(sel_run) if sel_run
+                               else self.build_detail(sel) if sel else ft.Container())
         self.table_holder.content = self.build_table(runs)
 
     def pick_cards(self):
@@ -1653,7 +1675,8 @@ class App:
                         ft.Container(expand=True),
                         pill("包络线", "#B45309", "#FEF3C7") if on_front else ft.Container()],
                        spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                t(param_short(c["params"]), size=11, color=MUTED, **MONO),
+                t(self.param_line(c["params"], limit=3), size=11, color=MUTED,
+                  max_lines=2, **MONO),
                 metrics], spacing=8),
             bgcolor=CARD, border_radius=14, padding=16, expand=True,
             border=ft.Border.all(2, BLUE if self.combo_key(c["params"]) == self.selected
@@ -1670,10 +1693,18 @@ class App:
 
     def select(self, key):
         self.selected = key
+        self.selected_run = None
         self.refresh_results()
         self.page.update()
 
-    def build_chart(self, runs, front, sel=None):
+    def select_run(self, key):
+        if not key:
+            return
+        self.selected_run = key
+        self.refresh_results()
+        self.page.update()
+
+    def build_chart(self, runs, front, sel=None, sel_run=None):
         xk, yk = self.xk, self.yk
         mx, my = METRICS[xk], METRICS[yk]
         pts = [(self.run_metric(r, xk), self.run_metric(r, yk), r) for r in runs]
@@ -1707,19 +1738,19 @@ class App:
                     for v in ticks(x0, x1, 5)],
             title=t(f"{mx['label']} ({mx['unit']})", size=11, color=MUTED))
 
-        def meta(title, color, rec):
-            return dict(title=title, color=color,
+        def meta(title, color, rec, kind):
+            return dict(title=title, color=color, kind=kind, rec=rec,
                         x=self.run_metric(rec, xk), y=fy(self.run_metric(rec, yk)),
                         fps=rec.get("fps_avg"), power=(rec.get("power_avg_mw") or 0) / 1000,
                         jank=rec.get("jank_s"), std=rec.get("fps_std"),
-                        label=param_short(rec.get("params") or {}))
+                        label=self.param_line(rec.get("params") or {}, limit=3))
 
-        meta_dots = [meta(f"一次运行 · 第 {(r.get('replay_index') or 0) + 1} 轮", "#CBD2DA", r)
-                     for _, _, r in pts]
+        meta_dots = [meta(f"一次运行 · 第 {(r.get('replay_index') or 0) + 1} 轮",
+                          "#CBD2DA", r, "run") for _, _, r in pts]
         front_pts = [(self.combo_metric(c, xk), self.combo_metric(c, yk), c) for c in front]
         front_pts = [(x, y, c) for x, y, c in front_pts if x is not None and y is not None]
         fpts = sorted(front_pts, key=lambda p: p[0])
-        meta_env = [meta(f"包络线 · {c.get('n')} 次平均", "#F59E0B", c)
+        meta_env = [meta(f"包络线 · {c.get('n')} 次平均", "#F59E0B", c, "combo")
                     for _, _, c in fpts]
 
         dots = fc.LineChartData(
@@ -1734,15 +1765,20 @@ class App:
                     for x, y, _ in fpts])
         series = [dots, env]
         metas = [meta_dots, meta_env]
-        if sel is not None:
-            sx, sy = self.combo_metric(sel, xk), self.combo_metric(sel, yk)
+        pick = sel_run if sel_run is not None else sel
+        if pick is not None:
+            sx = self.run_metric(pick, xk)
+            sy = self.run_metric(pick, yk)
             if sx is not None and sy is not None:
                 series.append(fc.LineChartData(
                     stroke_width=0,
                     point=fc.ChartCirclePoint(radius=7, color=BLUE, stroke_color=CARD,
                                               stroke_width=2),
                     points=[fc.LineChartDataPoint(sx, fy(sy), show_tooltip=False)]))
-                metas.append([meta("当前选择", BLUE, sel)])
+                title = ("当前选择 · 单次运行" if sel_run is not None
+                         else "当前选择 · 配置均值")
+                metas.append([meta(title, BLUE, pick,
+                                   "run" if sel_run is not None else "combo")])
         self.chart_series = metas
         self.chart_range = (x0, x1, min(fy(y0), fy(y1)), max(fy(y0), fy(y1)))
         self._hover = None
@@ -1766,7 +1802,12 @@ class App:
         tip = getattr(self, "chart_tip", None)
         if tip is None:
             return
+        if e.type == fc.ChartEventType.TAP_UP:
+            if e.spots:
+                self.on_chart_tap(e.spots[0])
+            return
         if e.type == fc.ChartEventType.POINTER_EXIT or not e.spots:
+            self._hover = None          # 不清掉的话同一个点第二次悬停不会弹
             if tip.visible:
                 tip.visible = False
                 self.page.update()
@@ -1789,10 +1830,46 @@ class App:
             ft.Row([dot(m["color"], 7), t(m["title"], size=11, color="#E5E7EB")], spacing=6),
             t(f"{m['fps']:.1f} fps · {m['power']:.2f} W", size=15, color=CARD,
               weight=ft.FontWeight.W_600),
-            t(f"掉帧 {m['jank']:.1f} 次/秒 · 波动 {m['std']:.1f}", size=11, color="#CBD5E1"),
+            t(f"掉帧 {m['jank']:.0f} 帧 · 波动 {m['std']:.1f}", size=11, color="#CBD5E1"),
             t(m["label"], size=11, color="#94A3B8")], spacing=3)
         tip.visible = True
         self.page.update()
+
+    def on_chart_tap(self, spot):
+        try:
+            m = self.chart_series[spot.bar_index][spot.spot_index]
+        except (IndexError, TypeError, KeyError):
+            return
+        if m.get("kind") == "run":
+            self.select_run(m["rec"].get("time_iso"))
+        elif m.get("rec"):
+            self.select(self.combo_key(m["rec"]["params"]))
+
+    def build_run_detail(self, run):
+        rows = []
+        for key in ("fps", "power", "jank", "bjank", "std"):
+            val = self.run_metric(run, key)
+            unit = METRICS[key]["unit"]
+            rows.append(ft.Row([t(METRICS[key]["label"], size=12, color=MUTED),
+                                ft.Container(expand=True),
+                                t("—" if val is None else
+                                  f"{METRICS[key]['fmt'].format(val)} {unit}".strip(),
+                                  size=13, weight=ft.FontWeight.W_500)], spacing=6))
+        params = [ft.Row([t(k, size=11, color=MUTED), t(str(v), size=11, **MONO)],
+                         spacing=6, alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+                  for k, v in self.order_params(run.get("params"))]
+        g = (run.get("replay_index") or 0) + 1
+        return ft.Column([
+            ft.Row([t(f"第 {g} 轮 · 单次运行", size=13, weight=ft.FontWeight.W_600,
+                      expand=True, max_lines=2),
+                    pill("单次", BLUE, BLUE_BG)], spacing=6),
+            ft.Column(rows, spacing=7),
+            ft.Divider(height=1, color=LINE),
+            t("这次用的参数", size=11, color=FAINT),
+            ft.Column(params, spacing=5),
+            ft.Divider(height=1, color=LINE),
+            t("推荐卡和包络线是同一配置多次运行的均值；点它们可以看均值口径。",
+              size=11, color=MUTED)], spacing=10)
 
     def build_detail(self, c):
         rows = []
@@ -1806,10 +1883,10 @@ class App:
                                   size=13, weight=ft.FontWeight.W_500)], spacing=6))
         params = [ft.Row([t(k, size=11, color=MUTED), t(str(v), size=11, **MONO)],
                          spacing=6, alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
-                  for k, v in (c.get("params") or {}).items()]
+                  for k, v in self.order_params(c.get("params"))]
         return ft.Column([
-            ft.Row([t(param_short(c["params"], 2), size=13, weight=ft.FontWeight.W_600,
-                      expand=True, max_lines=2),
+            ft.Row([t(self.param_line(c["params"], limit=3), size=13,
+                      weight=ft.FontWeight.W_600, expand=True, max_lines=2),
                     pill("包络线", "#B45309", "#FEF3C7") if c.get("on_front")
                     else pill("未进包络线", MUTED, TRACK)], spacing=6),
             ft.Column(rows, spacing=7),
@@ -1820,24 +1897,31 @@ class App:
             t(f"共 {c.get('n')} 次运行的均值", size=11, color=MUTED)], spacing=10)
 
     def build_table(self, runs):
-        rows = [ft.Row([t("轮次", size=11, color=FAINT, width=60),
-                        t("参数", size=11, color=FAINT, width=420),
-                        t("帧率", size=11, color=FAINT, width=80),
-                        t("功耗", size=11, color=FAINT, width=80),
-                        t("掉帧", size=11, color=FAINT, width=80)], spacing=0)]
+        head = ft.Row([t("轮次", size=11, color=FAINT, width=60),
+                       t("参数（全部）", size=11, color=FAINT, expand=True),
+                       t("帧率", size=11, color=FAINT, width=70),
+                       t("功耗", size=11, color=FAINT, width=80),
+                       t("掉帧", size=11, color=FAINT, width=60)], spacing=8)
+        rows = [head]
         for r in sorted(runs, key=lambda x: x.get("time_iso") or ""):
             g = (r.get("replay_index") or 0) + 1
             pw = r.get("power_avg_mw")
-            rows.append(ft.Row([
-                t(f"第 {g} 轮", size=11, color=MUTED, width=60),
-                t(param_short(r.get("params") or {}, 4), size=11, color=INK, width=420,
-                  **MONO),
-                t("—" if r.get("fps_avg") is None else f"{r['fps_avg']:.1f}",
-                  size=11, width=80),
-                t("—" if pw is None else f"{pw / 1000:.2f} W", size=11, width=80),
-                t("—" if r.get("jank_s") is None else f"{r['jank_s']:.1f}",
-                  size=11, width=80)], spacing=0))
-        return ft.Column(rows, spacing=6)
+            key = r.get("time_iso")
+            rows.append(ft.Container(
+                content=ft.Row([
+                    t(f"第 {g} 轮", size=11, color=MUTED, width=60),
+                    ft.Text(", ".join(f"{k}={v}"
+                                      for k, v in self.order_params(r.get("params"))),
+                            size=11, color=INK, expand=True, **MONO),
+                    t("—" if r.get("fps_avg") is None else f"{r['fps_avg']:.1f}",
+                      size=11, width=70),
+                    t("—" if pw is None else f"{pw / 1000:.2f} W", size=11, width=80),
+                    t("—" if r.get("jank_s") is None else f"{r['jank_s']:.0f}",
+                      size=11, width=60)], spacing=8),
+                bgcolor=BLUE_BG if key == self.selected_run else None,
+                border_radius=6, padding=ft.Padding(4, 3, 4, 3),
+                on_click=lambda e, k=key: self.select_run(k)))
+        return ft.Column(rows, spacing=4)
 
 
 HERE = Path(__file__).resolve().parent
