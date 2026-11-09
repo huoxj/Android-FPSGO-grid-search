@@ -1795,8 +1795,23 @@ class App:
         self.chart_tip = ft.Container(
             visible=False, width=215, bgcolor="#111827", border_radius=10,
             padding=ft.Padding(10, 8, 10, 8),
+            # 悬浮窗盖住光标时不能再抢 hover，否则会 显示→关闭→显示 地闪
+            ignore_interactions=True,
             shadow=ft.BoxShadow(blur_radius=14, color="#33000000", offset=ft.Offset(0, 4)))
-        return ft.Stack([chart, self.chart_tip], width=720, height=380)
+        # GestureDetector 只是为了能改鼠标样式：悬停到点上时变成可点击的手型
+        self.chart_gesture = ft.GestureDetector(
+            content=ft.Stack([chart, self.chart_tip], width=720, height=380),
+            mouse_cursor=ft.MouseCursor.BASIC)
+        return self.chart_gesture
+
+    def set_chart_cursor(self, clickable: bool):
+        g = getattr(self, "chart_gesture", None)
+        if g is None:
+            return
+        cur = ft.MouseCursor.CLICK if clickable else ft.MouseCursor.BASIC
+        if g.mouse_cursor != cur:
+            g.mouse_cursor = cur
+            g.update()
 
     def on_chart_hover(self, e):
         tip = getattr(self, "chart_tip", None)
@@ -1808,6 +1823,7 @@ class App:
             return
         if e.type == fc.ChartEventType.POINTER_EXIT or not e.spots:
             self._hover = None          # 不清掉的话同一个点第二次悬停不会弹
+            self.set_chart_cursor(False)
             if tip.visible:
                 tip.visible = False
                 self.page.update()
@@ -1820,6 +1836,7 @@ class App:
         if getattr(self, "_hover", None) == (spot.bar_index, spot.spot_index):
             return
         self._hover = (spot.bar_index, spot.spot_index)
+        self.set_chart_cursor(True)
         x0, x1, y0, y1 = self.chart_range
         px = 56 + (m["x"] - x0) / (x1 - x0) * (720 - 68)
         py = 12 + (y1 - m["y"]) / (y1 - y0) * (380 - 54)
