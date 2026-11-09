@@ -100,6 +100,40 @@ def pill(text, fg=MUTED, bg=TRACK):
         bgcolor=bg, border_radius=20, padding=ft.Padding(8, 3, 8, 3))
 
 
+def _cursor_style(style):
+    if style is None:
+        return ft.ButtonStyle(mouse_cursor=ft.MouseCursor.CLICK)
+    style.mouse_cursor = ft.MouseCursor.CLICK
+    return style
+
+
+def tbutton(*args, **kw):
+    kw["style"] = _cursor_style(kw.get("style"))
+    return ft.TextButton(*args, **kw)
+
+
+def obutton(*args, **kw):
+    kw["style"] = _cursor_style(kw.get("style"))
+    return ft.OutlinedButton(*args, **kw)
+
+
+def fbutton(*args, **kw):
+    kw["style"] = _cursor_style(kw.get("style"))
+    return ft.FilledButton(*args, **kw)
+
+
+def clickable(control, on_click=None):
+    """给没有 mouse_cursor 的控件（卡片、表格行）套一层手型光标。
+
+    点击要挂在这一层：容器自带的 on_click 会让 Flet 内部多一层点击区域，
+    那层会把光标抢回去。
+    """
+    kw = dict(content=control, mouse_cursor=ft.MouseCursor.CLICK)
+    if on_click is not None:
+        kw["on_tap"] = on_click
+    return ft.GestureDetector(**kw)
+
+
 def dot(color, size=8):
     return ft.Container(width=size, height=size, border_radius=size, bgcolor=color)
 
@@ -258,35 +292,41 @@ class App:
             circle.content = t(str(i + 1), size=15, weight=ft.FontWeight.BOLD, color=FAINT)
             nm = t(name, size=14, color=MUTED)
             sub = t("", size=12, color=MUTED)
-            parts.append(ft.Row([circle, ft.Column([nm, sub], spacing=1, tight=True)],
-                                spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER))
+            parts.append(ft.GestureDetector(
+                content=ft.Container(
+                    content=ft.Row([circle, ft.Column([nm, sub], spacing=1, tight=True)],
+                                   spacing=10,
+                                   vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                    padding=ft.Padding(4, 2, 12, 2)),
+                mouse_cursor=ft.MouseCursor.CLICK,
+                on_tap=lambda e, i=i: self.goto(i + 1)))
             self.nodes.append(dict(circle=circle, name=nm, sub=sub, idx=i))
             if i < 2:
                 line = ft.Container(height=2, bgcolor=LINE, margin=ft.Margin(10, 0, 10, 0))
                 parts.append(ft.Container(content=line, expand=True))
                 self.conns.append(line)
 
-        self.prev_btn = ft.OutlinedButton(
+        self.prev_btn = obutton(
             content=t("上一步", size=13), icon=ft.Icons.ARROW_BACK, height=40,
             on_click=self.on_prev, style=ft.ButtonStyle(padding=ft.Padding(14, 0, 16, 0)))
-        self.btn_start = ft.FilledButton(
+        self.btn_start = fbutton(
             content=t("开始搜索", size=13, color=CARD), icon=ft.Icons.PLAY_ARROW,
             height=40, bgcolor=BLUE, on_click=self.on_next,
             style=ft.ButtonStyle(padding=ft.Padding(16, 0, 14, 0)))
-        self.btn_new = ft.FilledButton(
+        self.btn_new = fbutton(
             content=t("开始新的搜索", size=13, color=CARD), icon=ft.Icons.PLAY_ARROW,
             height=40, bgcolor=BLUE, on_click=self.on_next,
             style=ft.ButtonStyle(padding=ft.Padding(16, 0, 14, 0)))
-        self.btn_back_running = ft.OutlinedButton(
+        self.btn_back_running = obutton(
             content=t("回到进行中搜索", size=13, color=BLUE), icon=ft.Icons.UNDO,
             height=40, on_click=lambda e: self.goto(2),
             style=ft.ButtonStyle(padding=ft.Padding(12, 0, 14, 0),
                                  side=ft.BorderSide(1, BLUE)))
-        self.btn_view = ft.FilledButton(
+        self.btn_view = fbutton(
             content=t("查看结果", size=13, color=CARD), icon=ft.Icons.INSIGHTS,
             height=40, bgcolor=BLUE, on_click=self.on_next,
             style=ft.ButtonStyle(padding=ft.Padding(14, 0, 12, 0)))
-        self.btn_last = ft.FilledButton(content=t("已是最后一步", size=13, color=FAINT),
+        self.btn_last = fbutton(content=t("已是最后一步", size=13, color=FAINT),
                                         height=40, disabled=True, bgcolor="#E8EAEE")
         self.next_area = ft.Row([self.btn_start], spacing=8)
         self.step_row = ft.Row([self.prev_btn, ft.Container(width=6),
@@ -311,15 +351,15 @@ class App:
         self.banner_icon = ft.Icon(ft.Icons.WARNING_AMBER, size=20, color=AMBER)
         self.banner_title = t("", size=13, weight=ft.FontWeight.W_600)
         self.banner_text = t("", size=12)
-        self.btn_resume = ft.FilledButton(content=t("继续上次搜索", size=12, color=CARD),
+        self.btn_resume = fbutton(content=t("继续上次搜索", size=12, color=CARD),
                                           bgcolor="#B45309", on_click=self.on_resume)
-        self.btn_fresh = ft.TextButton(content=t("换个目录重新开始", size=12, color=MUTED),
+        self.btn_fresh = tbutton(content=t("换个目录重新开始", size=12, color=MUTED),
                                        on_click=self.on_fresh_dir)
-        self.btn_stop_here = ft.OutlinedButton(
+        self.btn_stop_here = obutton(
             content=t("停止当前搜索", size=12, color=RED), icon=ft.Icons.STOP_CIRCLE,
             height=34, style=ft.ButtonStyle(padding=ft.Padding(8, 0, 10, 0)),
             on_click=self.stop_search)
-        self.btn_go_running = ft.TextButton(content=t("回到进行中搜索", size=12, color=BLUE),
+        self.btn_go_running = tbutton(content=t("回到进行中搜索", size=12, color=BLUE),
                                             on_click=lambda e: self.goto(2))
         self.banner_actions = ft.Row([], spacing=8)
         self.banner.content = ft.Row([
@@ -369,7 +409,7 @@ class App:
               size=13, color=MUTED),
             card(section("结果保存到", "每次运行的记录、日志和 trace 都放这里。换目录等于换一次搜索"),
                  ft.Row([self.out_tf,
-                         ft.TextButton(content=t("选择文件夹", size=12, color=MUTED),
+                         tbutton(content=t("选择文件夹", size=12, color=MUTED),
                                        on_click=self.pick_dir)], spacing=8),
                  ft.Row([t("这个目录里有记录时，重新进来会提示你继续上次没跑完的搜索。",
                            size=12, color=MUTED)])),
@@ -388,12 +428,12 @@ class App:
                  ft.Row([t("各行之间是全组合：上面两行放一起就是 2 × 2 = 4 个组合。",
                            size=12, color=MUTED)], wrap=True),
                  self.grid_col,
-                 ft.Row([ft.TextButton(content=t("＋ 添加参数", size=13, color=BLUE),
+                 ft.Row([tbutton(content=t("＋ 添加参数", size=13, color=BLUE),
                                        on_click=self.on_add_axis),
-                         ft.TextButton(content=t("＋ 添加联动参数", size=13, color=BLUE),
+                         tbutton(content=t("＋ 添加联动参数", size=13, color=BLUE),
                                        on_click=self.on_add_joint),
                          ft.Container(expand=True),
-                         ft.OutlinedButton(
+                         obutton(
                              content=t("预览要搜索的参数组合", size=13),
                              icon=ft.Icons.VISIBILITY_OUTLINED,
                              on_click=self.show_preview, height=38,
@@ -543,10 +583,10 @@ class App:
                     bits.append(t("/", size=13, color=MUTED))
                 bits.append(dd)
             bits += [
-                ft.TextButton(content=t("＋ 参数", size=12, color=BLUE),
+                tbutton(content=t("＋ 参数", size=12, color=BLUE),
                               tooltip="这一行再加一个参数，让它和这一行其它参数一起变",
                               on_click=lambda e: add_param()),
-                ft.TextButton(content=t("－ 参数", size=12, color=MUTED),
+                tbutton(content=t("－ 参数", size=12, color=MUTED),
                               tooltip="去掉这一行最后一个参数",
                               visible=len(row.data["dds"]) > 1,
                               on_click=lambda e: drop_param()),
@@ -775,7 +815,7 @@ class App:
                 bgcolor=CARD,
                 title=t("取值格式不对", size=17, color=INK),
                 content=t("单参数填 100, 150；联动参数每组写成 2800000/2500000。", size=13, color=INK),
-                actions=[ft.TextButton(content=t("知道了", size=13),
+                actions=[tbutton(content=t("知道了", size=13),
                                        on_click=lambda e: self.page.pop_dialog())]))
             return
         combos = []
@@ -803,7 +843,7 @@ class App:
                                      ft.Column(blocks, spacing=8, expand=True,
                                                scroll=ft.ScrollMode.AUTO),
                                  ], spacing=12, expand=True)),
-            actions=[ft.FilledButton(content=t("知道了", size=13, color=CARD), bgcolor=BLUE,
+            actions=[fbutton(content=t("知道了", size=13, color=CARD), bgcolor=BLUE,
                                      on_click=lambda e: self.page.pop_dialog())]))
 
     def save_form(self) -> bool:
@@ -851,7 +891,7 @@ class App:
                                     bgcolor="#0F172A", border_radius=10,
                                     padding=ft.Padding(12, 8, 12, 8))
         self.search_error = t("", size=12, color=RED)
-        self.btn_stop = ft.OutlinedButton(
+        self.btn_stop = obutton(
             content=t("停止搜索", size=12, color=RED), icon=ft.Icons.STOP_CIRCLE,
             height=34, style=ft.ButtonStyle(padding=ft.Padding(8, 0, 10, 0)),
             on_click=self.stop_search)
@@ -859,7 +899,7 @@ class App:
         self.search_view = ft.Column([
             ft.Row([ft.Column([self.s_head, self.s_stats], spacing=2),
                     ft.Container(expand=True), self.s_eta,
-                    ft.OutlinedButton(content=t("重启搜索", size=12, color=MUTED),
+                    obutton(content=t("重启搜索", size=12, color=MUTED),
                                       icon=ft.Icons.RESTART_ALT, height=34,
                                       on_click=self.ask_restart),
                     self.btn_stop],
@@ -967,9 +1007,9 @@ class App:
                 title=t("现在有一次搜索正在运行", size=17, weight=ft.FontWeight.W_600, color=INK),
                 content=t("开始新的搜索会先停掉它。已经跑完的结果会保留，不会丢。",
                           size=13, color=INK),
-                actions=[ft.TextButton(content=t("取消", size=13),
+                actions=[tbutton(content=t("取消", size=13),
                                        on_click=lambda e: self.page.pop_dialog()),
-                         ft.FilledButton(content=t("停止并重新开始", size=13, color=CARD),
+                         fbutton(content=t("停止并重新开始", size=13, color=CARD),
                                          bgcolor=RED, on_click=self._stop_and_start)]))
         else:
             self.start_search()
@@ -1009,9 +1049,9 @@ class App:
                   size=14, color=INK),
                 t("每个组合要跑不同对局；回放不够或太短，跑到后面对局会出错。",
                   size=12, color=MUTED)], spacing=10)),
-            actions=[ft.TextButton(content=t("取消", size=13),
+            actions=[tbutton(content=t("取消", size=13),
                                    on_click=lambda e: self.page.pop_dialog()),
-                     ft.FilledButton(content=t("已准备好，开始搜索", size=13, color=CARD),
+                     fbutton(content=t("已准备好，开始搜索", size=13, color=CARD),
                                      bgcolor=BLUE, on_click=self._ack_replays)]))
 
     def _ack_replays(self, e=None):
@@ -1137,11 +1177,11 @@ class App:
             title=t("出错了", size=18, weight=ft.FontWeight.BOLD, color=INK),
             content=ft.Container(width=760, height=430 if raw else 180,
                                  content=ft.Column(parts, spacing=8)),
-            actions=[ft.TextButton(content=t("停止", size=13, color=MUTED),
+            actions=[tbutton(content=t("停止", size=13, color=MUTED),
                                    on_click=self._err_stop),
-                     ft.OutlinedButton(content=t("重新编辑搜索配置", size=13, color=BLUE),
+                     obutton(content=t("重新编辑搜索配置", size=13, color=BLUE),
                                        on_click=self._err_edit),
-                     ft.FilledButton(content=t("重跑当前对局", size=13, color=CARD),
+                     fbutton(content=t("重跑当前对局", size=13, color=CARD),
                                      bgcolor=BLUE, on_click=self._err_retry)]))
 
     def _err_stop(self, e=None):
@@ -1184,9 +1224,9 @@ class App:
             title=t("重新启动搜索？", size=17, weight=ft.FontWeight.W_600, color=INK),
             content=t("会先停掉当前进程，再用同一份配置重新开始。已经跑完的 run 会在断点里被跳过。",
                       size=13, color=INK),
-            actions=[ft.TextButton(content=t("取消", size=13),
+            actions=[tbutton(content=t("取消", size=13),
                                    on_click=lambda e: self.page.pop_dialog()),
-                     ft.FilledButton(content=t("重新启动", size=13, color=CARD), bgcolor=BLUE,
+                     fbutton(content=t("重新启动", size=13, color=CARD), bgcolor=BLUE,
                                      on_click=self._restart)]))
 
     def _restart(self, e=None):
@@ -1680,9 +1720,8 @@ class App:
                 metrics], spacing=8),
             bgcolor=CARD, border_radius=14, padding=16, expand=True,
             border=ft.Border.all(2, BLUE if self.combo_key(c["params"]) == self.selected
-                                 else LINE),
-            on_click=lambda e, k=self.combo_key(c["params"]): self.select(k))
-        return box
+                                 else LINE))
+        return clickable(box, lambda e, k=self.combo_key(c["params"]): self.select(k))
 
     def metric_block(self, label, value, unit):
         return ft.Column([t(label, size=10, color=FAINT),
@@ -1924,7 +1963,7 @@ class App:
             g = (r.get("replay_index") or 0) + 1
             pw = r.get("power_avg_mw")
             key = r.get("time_iso")
-            rows.append(ft.Container(
+            rows.append(clickable(ft.Container(
                 content=ft.Row([
                     t(f"第 {g} 轮", size=11, color=MUTED, width=60),
                     ft.Text(", ".join(f"{k}={v}"
@@ -1936,8 +1975,8 @@ class App:
                     t("—" if r.get("jank_s") is None else f"{r['jank_s']:.0f}",
                       size=11, width=60)], spacing=8),
                 bgcolor=BLUE_BG if key == self.selected_run else None,
-                border_radius=6, padding=ft.Padding(4, 3, 4, 3),
-                on_click=lambda e, k=key: self.select_run(k)))
+                border_radius=6, padding=ft.Padding(4, 3, 4, 3)),
+                lambda e, k=key: self.select_run(k)))
         return ft.Column(rows, spacing=4)
 
 
